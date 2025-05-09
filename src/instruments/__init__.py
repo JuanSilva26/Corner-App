@@ -1,7 +1,8 @@
 """
-Instruments package for the Measurement App.
+Instruments module for interfacing with laboratory equipment.
 
-This package contains classes for controlling various measurement instruments.
+This module contains classes for communicating with various scientific instruments
+such as Keithley SourceMeters and other measurement equipment.
 """
 
 from .keithley import (

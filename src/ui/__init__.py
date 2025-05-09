@@ -1,7 +1,8 @@
 """
-UI package for the Measurement App.
+UI module for the Measurement App.
 
-This package contains the user interface components of the application.
+This module contains classes and components for creating the graphical user interface
+of the Measurement Application.
 """
 
 from .main_window import MainWindow

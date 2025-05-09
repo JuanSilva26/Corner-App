@@ -376,9 +376,6 @@ class AnalysisPanel(QWidget):
         self.tlm_table.setMinimumHeight(150)
         self.tlm_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         
-        # Connect table selection to show individual I-V curve
-        self.tlm_table.itemSelectionChanged.connect(self.show_selected_iv_curve)
-        
         self.layout.addWidget(self.tlm_table)
     
     def create_plot_section(self):
@@ -565,7 +562,10 @@ class AnalysisPanel(QWidget):
                 # Perform linear regression to extract resistance (V = IR, so slope = R)
                 # We'll fit current vs. voltage (I = V/R) and take 1/slope for R
                 try:
-                    slope, intercept, r_value, p_value, std_err = stats.linregress(filtered_voltage, filtered_current_amps)
+                    # Use the tuple unpacking with direct indexing to avoid attribute access issues
+                    linregress_output = stats.linregress(filtered_voltage, filtered_current_amps)
+                    slope = linregress_output[0]  # slope is the first element
+                    r_value = linregress_output[2]  # r_value is the third element
                     
                     # Check if slope is valid
                     if abs(slope) < 1e-10 or np.isnan(slope):
@@ -613,7 +613,11 @@ class AnalysisPanel(QWidget):
             
             # Linear regression of resistance vs. distance
             try:
-                slope, intercept, r_value, p_value, std_err = stats.linregress(distances, resistances)
+                # Use the tuple unpacking with direct indexing to avoid attribute access issues
+                linregress_output = stats.linregress(distances, resistances)
+                slope = linregress_output[0]  # slope is the first element
+                intercept = linregress_output[1]  # intercept is the second element
+                r_value = linregress_output[2]  # r_value is the third element
                 
                 # Check for valid regression results
                 if np.isnan(slope) or np.isnan(intercept) or np.isnan(r_value):
@@ -649,11 +653,6 @@ class AnalysisPanel(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "TLM Analysis Error", 
                                f"Error performing TLM analysis: {str(e)}")
-    
-    def show_selected_iv_curve(self):
-        """Method to handle selection changes in the table - now just highlights the row."""
-        # Keep this method to avoid breaking connections, but it won't display I-V curves anymore
-        pass
     
     def clear_analysis(self):
         """Clear all analysis data and plots."""
