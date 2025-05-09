@@ -429,7 +429,9 @@ class AnalysisPanel(QWidget):
             file_paths: List of file paths to load
         """
         # Starting distance for new files (increment by 10 from the last file if any)
-        start_distance = 10
+        start_distance = 5
+        increment = 5  # Default increment value defined outside the conditional blocks
+        
         if self.tlm_distances:
             # Try to determine a pattern from existing distances
             if len(self.tlm_distances) >= 2:
@@ -442,12 +444,9 @@ class AnalysisPanel(QWidget):
                     diffs = np.diff(sorted_distances)
                     if len(diffs) > 0 and np.mean(diffs) > 0:
                         increment = np.mean(diffs)
-                    else:
-                        increment = 10
-                else:
-                    increment = 10
-            else:
-                increment = 10
+                    # else: increment already has default value of 10
+                # else: increment already has default value of 10
+            # else: increment already has default value of 10
                 
             # Get the last distance value from the table
             last_row = self.tlm_table.rowCount() - 1
