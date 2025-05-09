@@ -677,7 +677,7 @@ class AnalysisPanel(QWidget):
         Args:
             data: Measurement data dictionary from IV sweep
         """
-        # This method is called when measurement data is available
-        # We could potentially automatically add the current measurement to the TLM list
-        # For now, we'll just show a message that data is available
+        # This method can be implemented in the future to automatically 
+        # add measurement data to the TLM analysis
+        # Currently not used for direct data processing
         pass 
