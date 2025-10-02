@@ -35,3 +35,22 @@ Thumbs.db
 .env
 .coverage
 htmlcov/
+
+# Data and test files (keep locally but don't push to GitHub)
+Data/
+Downloads/
+testing/
+*.txt
+*.csv
+*.xlsx
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.svg
+
+# Keep only essential files in GitHub:
+# - src/ (source code)
+# - README.md
+# - requirements.txt
+# - .gitignore
