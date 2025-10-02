@@ -94,7 +94,7 @@ class Keithley2400(KeithleyInstrument):
             
             # Set up as voltage source
             self.write(":SOUR:FUNC:MODE VOLT")
-            self.write(f":SENS:CURR:PROT:LEV {current_compliance}")
+            self.write(f":CURR {current_compliance}")  # Set current compliance limit
             self.write(":SENS:CURR:RANGE:AUTO 1")  # Auto current range
             
             # Turn output on
@@ -185,17 +185,30 @@ class Keithley2400(KeithleyInstrument):
             raise KeithleyError(f"Failed during I-V sweep: {str(e)}")
     
     def cleanup(self):
-        """Clean up after measurements."""
+        """Clean up after measurements and return to local mode."""
         if self.connected:
             try:
                 # Set output off
                 self.write(":OUTP OFF")
                 
-                # Switch to current source mode
+                # Switch to current source mode for safety
                 self.write(":SOUR:FUNC:MODE CURR")
                 
-                # Return to local control
-                self.write("SYSTEM:KEY 23")
+                # Set current compliance to a safe value
+                self.write(":SOUR:CURR 0.001")  # 1mA current limit
+                
+                # Set voltage protection level to max voltage used
+                self.write(":SENS:VOLT:PROT:LEV 10")  # 10V protection
+                
+                # Enable auto range for voltage measurement
+                self.write(":SENS:VOLT:RANGE:AUTO 1")
+                
+                # Enable continuous measurements (like Generator.py)
+                self.write(":INIT:CONT ON")
+                
+                # Return to local control (like Generator.py)
+                self.write(":SYST:LOC")
+                
             except Exception as e:
                 raise KeithleyError(f"Failed during cleanup: {str(e)}")
                 

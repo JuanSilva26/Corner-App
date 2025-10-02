@@ -6,5 +6,12 @@ of the Measurement Application.
 """
 
 from .main_window import MainWindow
+from .theme import AppTheme, PlotTheme, get_theme, get_plot_theme
 
-__all__ = ["MainWindow"] 
+__all__ = [
+    "MainWindow",
+    "AppTheme",
+    "PlotTheme",
+    "get_theme",
+    "get_plot_theme"
+] 

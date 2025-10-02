@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QTabWidget, QLabel, QStatusBar, QSplitter
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPalette, QColor
+from .theme import AppTheme
 
 class MainWindow(QMainWindow):
     """Main window of the application with central widget layout."""
@@ -15,22 +15,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         
-        # Define dark mode color scheme
-        self.colors = {
-            'primary': '#2980b9',    # Primary blue
-            'secondary': '#27ae60',  # Green for positive actions
-            'danger': '#c0392b',     # Red for negative actions
-            'warning': '#d35400',    # Orange for warnings/notifications
-            'dark': '#1e272e',       # Dark background
-            'darker': '#151c21',     # Darker background
-            'light': '#485460',      # Light backgrounds (dark mode)
-            'lighter': '#808e9b',    # Button/accent gray
-            'text': '#ecf0f1',       # Text color
-            'text_secondary': '#bdc3c7', # Secondary text
-            'border': '#34495e',     # Border color
-            'button': '#34495e',     # Button background
-            'input': '#2c3e50',      # Input field background
-        }
+        # Get centralized theme colors
+        self.colors = AppTheme.get_colors()
         
         # Set up the main window
         self.setWindowTitle("Measurement App")
@@ -100,16 +86,34 @@ class MainWindow(QMainWindow):
     
     def apply_stylesheet(self):
         """Apply dark mode stylesheet to the entire application."""
-        self.setStyleSheet(f"""
+        # Build complete stylesheet from components
+        stylesheet = self._get_base_styles()
+        stylesheet += self._get_tab_styles()
+        stylesheet += self._get_widget_styles()
+        stylesheet += self._get_toolbar_styles()
+        
+        self.setStyleSheet(stylesheet)
+    
+    def _get_base_styles(self):
+        """Get base window and widget styles."""
+        return f"""
             QMainWindow {{
                 background-color: {self.colors['dark']};
             }}
             QWidget {{
-                font-family: 'Segoe UI', 'Arial', sans-serif;
+                font-family: 'Helvetica Neue', 'Helvetica', 'Arial', sans-serif;
                 font-size: 13px;
                 color: {self.colors['text']};
                 background-color: {self.colors['dark']};
             }}
+            QLabel {{
+                color: {self.colors['text']};
+            }}
+        """
+    
+    def _get_tab_styles(self):
+        """Get tab widget styles."""
+        return f"""
             QTabWidget::pane {{ 
                 border: 1px solid {self.colors['border']}; 
                 border-radius: 5px;
@@ -138,6 +142,11 @@ class MainWindow(QMainWindow):
             QTabBar::tab:hover:!selected {{
                 background-color: {self.colors['darker']};
             }}
+        """
+    
+    def _get_widget_styles(self):
+        """Get standard widget styles (buttons, inputs, etc.)."""
+        return f"""
             QGroupBox {{
                 font-weight: bold;
                 border: 1px solid {self.colors['border']};
@@ -225,6 +234,11 @@ class MainWindow(QMainWindow):
                 background-color: {self.colors['primary']};
                 border: 1px solid {self.colors['primary']};
             }}
+        """
+    
+    def _get_toolbar_styles(self):
+        """Get toolbar and tool button styles."""
+        return f"""
             QToolBar {{
                 spacing: 6px;
                 background-color: {self.colors['darker']};
@@ -240,10 +254,7 @@ class MainWindow(QMainWindow):
             QToolButton:hover {{
                 background-color: {self.colors['light']};
             }}
-            QLabel {{
-                color: {self.colors['text']};
-            }}
-        """)
+        """
     
     def setup_control_panel(self):
         """Set up the control panel with tabs for different settings."""

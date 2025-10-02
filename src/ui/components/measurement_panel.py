@@ -3,30 +3,30 @@ Measurement configuration panel for I-V sweep settings with integrated visualiza
 """
 
 import os
+import time
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QLineEdit, QPushButton, QCheckBox, QGroupBox,
     QFormLayout, QSpinBox, QDoubleSpinBox, QFileDialog,
     QMessageBox, QProgressBar, QSplitter, QFrame, QToolBar,
-    QComboBox, QToolButton, QSizePolicy, QInputDialog
+    QComboBox, QToolButton, QSizePolicy
 )
-from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QSize
-from PyQt6.QtGui import QIcon, QFont, QColor, QPalette, QAction
+from PyQt6.QtCore import Qt, pyqtSignal, QSize
+from PyQt6.QtGui import QFont
 
 # Import for real-time plotting
 import numpy as np
-import matplotlib
-try:
-    matplotlib.use('Qt6Agg')
-except:
-    matplotlib.use('Qt5Agg')
+import numpy.linalg
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
-import numpy.linalg
 
-# Import for CustomNavigationToolbar
+# Import theme and CustomNavigationToolbar
 from ui.components.visualization_panel import CustomNavigationToolbar
+from ..theme import AppTheme, PlotTheme
+
+# Setup matplotlib
+PlotTheme.setup_matplotlib()
 
 
 class StatusIndicator(QLabel):
@@ -69,144 +69,16 @@ class MeasurementPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         
-        # Define a dark mode color scheme
-        self.colors = {
-            'primary': '#2980b9',    # Primary blue
-            'secondary': '#27ae60',  # Green for positive actions
-            'danger': '#c0392b',     # Red for negative actions
-            'warning': '#d35400',    # Orange for warnings/notifications
-            'dark': '#1e272e',       # Dark background
-            'darker': '#151c21',     # Darker background
-            'light': '#485460',      # Light backgrounds (dark mode)
-            'lighter': '#808e9b',    # Button/accent gray
-            'text': '#ecf0f1',       # Text color
-            'text_secondary': '#bdc3c7', # Secondary text
-            'border': '#34495e',     # Border color
-            'button': '#34495e',     # Button background
-            'input': '#2c3e50',      # Input field background
-            
-            # Plot colors - keep white background but use dark mode for elements
-            'plot_bg': '#ffffff',     # White background for plot
-            'plot_fig_bg': '#1e272e', # Dark figure background (outside plot area)
-            'plot_grid': '#cccccc',   # Light grid lines
-            'plot_forward': '#2980b9', # Forward line - blue
-            'plot_reverse': '#c0392b', # Reverse line - red
-            'plot_text': '#333333',    # Dark text for plot labels
-        }
-        
-        # Define some style constants with updated modern styling
+        # Get centralized theme colors and styles
+        self.colors = AppTheme.get_colors()
         self.HEADER_STYLE = f"QLabel {{ font-size: 16px; font-weight: bold; color: {self.colors['text']}; }}"
-        self.GROUP_STYLE = f"""
-            QGroupBox {{ 
-                font-weight: bold; 
-                border: 1px solid {self.colors['border']}; 
-                border-radius: 6px; 
-                margin-top: 1.5ex; 
-                padding-top: 10px;
-                padding-bottom: 8px;
-                background-color: {self.colors['dark']};
-                color: {self.colors['text']};
-            }} 
-            QGroupBox::title {{ 
-                subcontrol-origin: margin; 
-                subcontrol-position: top center; 
-                padding: 0 8px; 
-                color: {self.colors['text']};
-            }}
-        """
-        self.BUTTON_STYLE = f"""
-            QPushButton {{ 
-                background-color: {self.colors['button']}; 
-                color: {self.colors['text']}; 
-                border-radius: 5px; 
-                padding: 8px 15px; 
-                font-weight: bold; 
-                border: none;
-            }} 
-            QPushButton:hover {{ 
-                background-color: {self.colors['primary']}; 
-            }} 
-            QPushButton:pressed {{ 
-                background-color: #1c6ea4;
-            }}
-            QPushButton:disabled {{ 
-                background-color: {self.colors['light']}; 
-                color: {self.colors['text_secondary']};
-            }}
-        """
-        self.START_BUTTON_STYLE = f"""
-            QPushButton {{ 
-                background-color: {self.colors['secondary']}; 
-                color: {self.colors['text']}; 
-                border-radius: 5px; 
-                padding: 8px 15px; 
-                font-weight: bold; 
-                border: none;
-            }} 
-            QPushButton:hover {{ 
-                background-color: #219653; 
-            }} 
-            QPushButton:pressed {{ 
-                background-color: #1e8449;
-            }}
-            QPushButton:disabled {{ 
-                background-color: {self.colors['light']}; 
-                color: {self.colors['text_secondary']};
-            }}
-        """
-        self.STOP_BUTTON_STYLE = f"""
-            QPushButton {{ 
-                background-color: {self.colors['danger']}; 
-                color: {self.colors['text']}; 
-                border-radius: 5px; 
-                padding: 8px 15px; 
-                font-weight: bold; 
-                border: none;
-            }} 
-            QPushButton:hover {{ 
-                background-color: #a93226; 
-            }} 
-            QPushButton:pressed {{ 
-                background-color: #922b21;
-            }}
-            QPushButton:disabled {{ 
-                background-color: {self.colors['light']}; 
-                color: {self.colors['text_secondary']};
-            }}
-        """
-        self.SECTION_SEPARATOR_STYLE = f"background-color: {self.colors['border']}; border-radius: 2px;"
+        self.GROUP_STYLE = AppTheme.group_box_style()
+        self.BUTTON_STYLE = AppTheme.button_style()
+        self.START_BUTTON_STYLE = AppTheme.primary_button_style()
+        self.STOP_BUTTON_STYLE = AppTheme.danger_button_style()
+        self.SECTION_SEPARATOR_STYLE = AppTheme.section_separator_style()
         
-        # Define measurement presets
-        self.presets = {
-            "Standard I-V": {
-                "start_voltage": 0.0,
-                "stop_voltage": 0.8,
-                "num_points": 100,
-                "compliance": 0.01,
-                "bidirectional": True
-            },
-            "High Resolution": {
-                "start_voltage": 0.0,
-                "stop_voltage": 0.8,
-                "num_points": 500,
-                "compliance": 0.01,
-                "bidirectional": True
-            },
-            "Quick Test": {
-                "start_voltage": 0.0,
-                "stop_voltage": 0.5,
-                "num_points": 20,
-                "compliance": 0.01,
-                "bidirectional": False
-            },
-            "Negative Voltage": {
-                "start_voltage": -0.8,
-                "stop_voltage": 0.0,
-                "num_points": 100,
-                "compliance": 0.01,
-                "bidirectional": True
-            }
-        }
+        # Removed presets - keeping only manual configuration
         
         # Main layout with splitter
         self.main_layout = QVBoxLayout(self)
@@ -237,6 +109,8 @@ class MeasurementPanel(QWidget):
         # Setup settings panel
         self.create_settings_header()
         self.create_sweep_settings()
+        self.create_dc_bias_settings()
+        self.create_pm100d_settings()
         self.create_save_settings()
         self.create_control_buttons()
         self.create_progress_section()
@@ -247,8 +121,11 @@ class MeasurementPanel(QWidget):
         
         # Set initial state
         self.instrument = None
+        self.instrument2 = None
+        self.pm100d_instrument = None
+        self.dual_mode = False
         self.is_measuring = False
-        self.current_data = {"voltage": [], "current": []}
+        self.current_data = {"voltage": [], "current": [], "power": [], "voltage_reverse": [], "current_reverse": [], "power_reverse": []}
         self.update_ui_state()
     
     def create_toolbar(self):
@@ -274,24 +151,28 @@ class MeasurementPanel(QWidget):
             }}
         """)
         
-        # Presets dropdown
-        preset_label = QLabel("Presets:")
-        preset_label.setStyleSheet(f"font-weight: bold; padding-right: 5px; color: {self.colors['text']};")
-        toolbar.addWidget(preset_label)
+        # Removed preset functionality - keeping only mode selector
         
-        self.preset_combo = QComboBox()
-        self.preset_combo.addItems(list(self.presets.keys()))
-        self.preset_combo.setMinimumWidth(150)
-        self.preset_combo.setStyleSheet(f"""
+        # Measurement mode selector
+        mode_label = QLabel("Mode:")
+        mode_label.setStyleSheet(f"font-weight: bold; padding-right: 5px; color: {self.colors['text']};")
+        toolbar.addWidget(mode_label)
+        
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems(["I-V Sweep", "Dual Keithley", "P-I-V Measurement"])
+        self.mode_combo.setMinimumWidth(150)
+        self.mode_combo.setStyleSheet(f"""
             QComboBox {{
-                border: 1px solid {self.colors['border']};
-                border-radius: 3px;
-                padding: 3px;
+                border: 2px solid {self.colors['primary']};
+                border-radius: 6px;
+                padding: 6px;
                 background-color: {self.colors['input']};
                 color: {self.colors['text']};
+                font-weight: bold;
+                font-size: 13px;
             }}
             QComboBox:focus {{
-                border: 1px solid {self.colors['primary']};
+                border: 2px solid {self.colors['secondary']};
             }}
             QComboBox::drop-down {{
                 subcontrol-origin: padding;
@@ -305,21 +186,10 @@ class MeasurementPanel(QWidget):
                 selection-background-color: {self.colors['primary']};
             }}
         """)
-        toolbar.addWidget(self.preset_combo)
-        
-        # Load preset button
-        load_preset_action = QAction("Load Preset", self)
-        load_preset_action.triggered.connect(self.load_preset)
-        load_preset_action.setToolTip("Load the selected preset configuration")
-        toolbar.addAction(load_preset_action)
+        self.mode_combo.currentTextChanged.connect(self.on_mode_changed)
+        toolbar.addWidget(self.mode_combo)
         
         toolbar.addSeparator()
-        
-        # Save as preset button
-        save_preset_action = QAction("Save Current as Preset", self)
-        save_preset_action.triggered.connect(self.save_current_as_preset)
-        save_preset_action.setToolTip("Save current settings as a new preset")
-        toolbar.addAction(save_preset_action)
         
         self.main_layout.addWidget(toolbar)
     
@@ -443,9 +313,152 @@ class MeasurementPanel(QWidget):
         
         group_box.setLayout(form_layout)
         self.settings_layout.addWidget(group_box)
+        self.sweep_group = group_box  # Store reference for mode switching
+    
+    def create_dc_bias_settings(self):
+        """Create DC bias settings group for dual mode."""
+        self.dc_bias_group = QGroupBox("DC Bias Settings (Instrument 1)")
+        self.dc_bias_group.setStyleSheet(self.GROUP_STYLE)
+        form_layout = QFormLayout()
+        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        
+        # Input field styling
+        input_style = f"""
+            QDoubleSpinBox {{
+                padding: 5px;
+                border: 1px solid {self.colors['border']};
+                border-radius: 4px;
+                background-color: {self.colors['input']};
+                color: {self.colors['text']};
+                selection-background-color: {self.colors['primary']};
+            }}
+            QDoubleSpinBox:focus {{
+                border: 1px solid {self.colors['primary']};
+            }}
+            QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
+                width: 16px;
+                border-radius: 0px;
+                background-color: {self.colors['button']};
+            }}
+        """
+        
+        # DC bias voltage
+        self.dc_bias_voltage_spin = QDoubleSpinBox()
+        self.dc_bias_voltage_spin.setRange(-10.0, 10.0)
+        self.dc_bias_voltage_spin.setValue(0.0)
+        self.dc_bias_voltage_spin.setSuffix(" V")
+        self.dc_bias_voltage_spin.setDecimals(3)
+        self.dc_bias_voltage_spin.setSingleStep(0.1)
+        self.dc_bias_voltage_spin.setToolTip("DC bias voltage applied by Instrument 1")
+        self.dc_bias_voltage_spin.setStyleSheet(input_style)
+        form_layout.addRow("DC Bias Voltage:", self.dc_bias_voltage_spin)
+        
+        # DC bias compliance
+        self.dc_bias_compliance_spin = QDoubleSpinBox()
+        self.dc_bias_compliance_spin.setRange(0.001, 1.0)
+        self.dc_bias_compliance_spin.setValue(0.01)
+        self.dc_bias_compliance_spin.setSuffix(" A")
+        self.dc_bias_compliance_spin.setDecimals(3)
+        self.dc_bias_compliance_spin.setSingleStep(0.001)
+        self.dc_bias_compliance_spin.setToolTip("Current compliance for DC bias source")
+        self.dc_bias_compliance_spin.setStyleSheet(input_style)
+        form_layout.addRow("DC Bias Compliance:", self.dc_bias_compliance_spin)
+        
+        self.dc_bias_group.setLayout(form_layout)
+        self.settings_layout.addWidget(self.dc_bias_group)
+        
+        # Initially hide the DC bias group
+        self.dc_bias_group.hide()
+    
+    def create_pm100d_settings(self):
+        """Create PM100D settings group for P-I-V measurement."""
+        self.pm100d_group = QGroupBox("PM100D Power Meter Settings")
+        self.pm100d_group.setStyleSheet(self.GROUP_STYLE)
+        form_layout = QFormLayout()
+        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        
+        # Input field styling
+        input_style = f"""
+            QSpinBox, QDoubleSpinBox, QComboBox {{
+                padding: 5px;
+                border: 1px solid {self.colors['border']};
+                border-radius: 4px;
+                background-color: {self.colors['input']};
+                color: {self.colors['text']};
+                selection-background-color: {self.colors['primary']};
+                min-height: 25px;
+            }}
+            QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{
+                border: 1px solid {self.colors['primary']};
+            }}
+        """
+        
+        # Wavelength setting
+        self.pm100d_wavelength_spin = QSpinBox()
+        self.pm100d_wavelength_spin.setRange(200, 2000)
+        self.pm100d_wavelength_spin.setValue(800)  # Default wavelength
+        self.pm100d_wavelength_spin.setSuffix(" nm")
+        self.pm100d_wavelength_spin.setToolTip("Wavelength for power measurement")
+        self.pm100d_wavelength_spin.setStyleSheet(input_style)
+        form_layout.addRow("Wavelength:", self.pm100d_wavelength_spin)
+        
+        # Range mode selection
+        self.pm100d_range_combo = QComboBox()
+        self.pm100d_range_combo.addItems(["Auto", "Manual"])
+        self.pm100d_range_combo.setToolTip("Power range mode")
+        self.pm100d_range_combo.setStyleSheet(input_style)
+        self.pm100d_range_combo.currentTextChanged.connect(self.on_pm100d_range_changed)
+        form_layout.addRow("Range Mode:", self.pm100d_range_combo)
+        
+        # Manual range setting (initially hidden)
+        self.pm100d_manual_range_spin = QDoubleSpinBox()
+        self.pm100d_manual_range_spin.setRange(0.001, 10.0)
+        self.pm100d_manual_range_spin.setValue(0.01)
+        self.pm100d_manual_range_spin.setDecimals(3)
+        self.pm100d_manual_range_spin.setSuffix(" W")
+        self.pm100d_manual_range_spin.setToolTip("Manual power range in Watts")
+        self.pm100d_manual_range_spin.setStyleSheet(input_style)
+        form_layout.addRow("Manual Range:", self.pm100d_manual_range_spin)
+        
+        # Initially hide manual range
+        self.pm100d_manual_range_spin.hide()
+        form_layout.labelForField(self.pm100d_manual_range_spin).hide()
+        
+        self.pm100d_group.setLayout(form_layout)
+        self.settings_layout.addWidget(self.pm100d_group)
+        
+        # Initially hide the PM100D group
+        self.pm100d_group.hide()
+    
+    def on_pm100d_range_changed(self, range_mode):
+        """Handle PM100D range mode change."""
+        if range_mode == "Manual":
+            self.pm100d_manual_range_spin.show()
+            form_layout = self.pm100d_group.layout()
+            for i in range(form_layout.rowCount()):
+                if form_layout.itemAt(i, QFormLayout.ItemRole.LabelRole) and form_layout.itemAt(i, QFormLayout.ItemRole.LabelRole).widget() == form_layout.labelForField(self.pm100d_manual_range_spin):
+                    form_layout.labelForField(self.pm100d_manual_range_spin).show()
+                    break
+        else:
+            self.pm100d_manual_range_spin.hide()
+            form_layout = self.pm100d_group.layout()
+            for i in range(form_layout.rowCount()):
+                if form_layout.itemAt(i, QFormLayout.ItemRole.LabelRole) and form_layout.itemAt(i, QFormLayout.ItemRole.LabelRole).widget() == form_layout.labelForField(self.pm100d_manual_range_spin):
+                    form_layout.labelForField(self.pm100d_manual_range_spin).hide()
+                    break
     
     def create_save_settings(self):
         """Create save settings group."""
+        # Add separator before save settings
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setStyleSheet(self.SECTION_SEPARATOR_STYLE)
+        separator.setMaximumHeight(2)
+        self.settings_layout.addWidget(separator)
+        
         group_box = QGroupBox("Save Settings")
         group_box.setStyleSheet(self.GROUP_STYLE)
         form_layout = QFormLayout()
@@ -494,8 +507,17 @@ class MeasurementPanel(QWidget):
         group_box.setLayout(form_layout)
         self.settings_layout.addWidget(group_box)
     
+    
     def create_control_buttons(self):
         """Create measurement control buttons."""
+        # Add separator before control buttons
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setStyleSheet(self.SECTION_SEPARATOR_STYLE)
+        separator.setMaximumHeight(2)
+        self.settings_layout.addWidget(separator)
+        
         button_layout = QHBoxLayout()
         
         self.start_button = QPushButton("Start Measurement")
@@ -516,40 +538,53 @@ class MeasurementPanel(QWidget):
     
     def create_progress_section(self):
         """Create progress bar and status section."""
-        group_box = QGroupBox("Measurement Status")
-        group_box.setStyleSheet(self.GROUP_STYLE)
-        progress_layout = QVBoxLayout()
+        # Add separator before progress section
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setStyleSheet(self.SECTION_SEPARATOR_STYLE)
+        separator.setMaximumHeight(2)
+        self.settings_layout.addWidget(separator)
         
-        # Status label
+        # Status label (compact, without group box)
         self.status_label = QLabel("Ready")
-        status_font = QFont()
-        status_font.setBold(True)
-        self.status_label.setFont(status_font)
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        progress_layout.addWidget(self.status_label)
+        self.status_label.setStyleSheet(f"""
+            padding: 8px;
+            border-radius: 5px;
+            background-color: {self.colors['input']};
+            color: {self.colors['text_secondary']};
+            font-weight: bold;
+            font-size: 13px;
+        """)
+        self.settings_layout.addWidget(self.status_label)
         
-        # Progress bar with modern styling
+        # Progress bar with modern styling - more prominent
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
+        self.progress_bar.setMinimumHeight(30)  # Make it taller
         self.progress_bar.setStyleSheet(f"""
             QProgressBar {{
-                border: 1px solid {self.colors['border']};
-                border-radius: 5px;
+                border: 2px solid {self.colors['primary']};
+                border-radius: 8px;
                 text-align: center;
                 background-color: {self.colors['input']};
                 color: {self.colors['text']};
-                height: 22px;
+                height: 30px;
+                font-size: 14px;
+                font-weight: bold;
             }}
             QProgressBar::chunk {{
-                background-color: {self.colors['primary']};
-                border-radius: 5px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {self.colors['primary']}, stop:1 #3498db);
+                border-radius: 6px;
             }}
         """)
-        progress_layout.addWidget(self.progress_bar)
+        self.settings_layout.addWidget(self.progress_bar)
         
-        group_box.setLayout(progress_layout)
-        self.settings_layout.addWidget(group_box)
+        # Initially hide progress bar
+        self.progress_bar.hide()
     
     def setup_visualization(self):
         """Set up real-time visualization panel."""
@@ -601,8 +636,9 @@ class MeasurementPanel(QWidget):
         # Add clear plot functionality to toolbar
         self.toolbar.add_clear_button(self.clear_plot)
         
-        # Create the plot with enhanced styling
+        # Create the plot with enhanced styling - use subplots for P-I-V mode
         self.ax = self.figure.add_subplot(111)
+        self.ax_power = None  # Will be created for P-I-V mode
         self.customize_plot()
         
         # Add to plot container
@@ -620,9 +656,27 @@ class MeasurementPanel(QWidget):
         # Force figure to fill canvas
         self.canvas.draw()
     
-    def customize_plot(self):
+    def customize_plot(self, is_piv_mode=False):
         """Apply custom styling to the plot."""
-        # Set plot appearance with black text for better visibility
+        if is_piv_mode:
+            # Clear existing subplot and create two subplots for P-I-V mode with better spacing
+            self.figure.clear()
+            # Use constrained_layout for better spacing, or manually adjust
+            self.figure.subplots_adjust(left=0.08, right=0.95, bottom=0.12, top=0.92, wspace=0.25)
+            self.ax = self.figure.add_subplot(121)  # Left plot for I-V
+            self.ax_power = self.figure.add_subplot(122)  # Right plot for P-V
+        else:
+            # Single plot mode
+            if self.ax_power is not None:
+                self.figure.clear()
+                self.figure.subplots_adjust(left=0.1, right=0.94, bottom=0.12, top=0.92)
+                self.ax = self.figure.add_subplot(111)
+                self.ax_power = None
+            else:
+                # Just adjust margins for single plot
+                self.figure.subplots_adjust(left=0.1, right=0.94, bottom=0.12, top=0.92)
+        
+        # Style the I-V plot
         self.ax.set_xlabel('Voltage (V)', fontsize=12, color=self.colors['plot_text'], fontweight='bold')
         self.ax.set_ylabel('Current (mA)', fontsize=12, color=self.colors['plot_text'], fontweight='bold')
         self.ax.set_title('I-V Curve', fontsize=14, color=self.colors['plot_text'], fontweight='bold')
@@ -638,7 +692,7 @@ class MeasurementPanel(QWidget):
         # Tick styling - black and bold for better visibility
         self.ax.tick_params(colors='#000000', direction='out', width=1.5, labelsize=10)
         
-        # Add forward and reverse line objects with enhanced styling and renamed legends
+        # Add forward and reverse line objects for I-V plot
         self.line_forward, = self.ax.plot(
             [], [], 
             color=self.colors['plot_forward'], 
@@ -659,7 +713,7 @@ class MeasurementPanel(QWidget):
             label='Downward'
         )
         
-        # Enhanced legend with black text
+        # Enhanced legend with black text for I-V plot
         legend = self.ax.legend(loc='upper right', frameon=True, fontsize=11)
         legend.get_frame().set_facecolor('#ffffff')
         legend.get_frame().set_alpha(0.9)
@@ -669,13 +723,67 @@ class MeasurementPanel(QWidget):
         for text in legend.get_texts():
             text.set_color('#000000')
         
+        # Style the P-V plot if in P-I-V mode
+        if is_piv_mode and self.ax_power is not None:
+            self.ax_power.set_xlabel('Voltage (V)', fontsize=12, color=self.colors['plot_text'], fontweight='bold')
+            self.ax_power.set_ylabel('Power (mW)', fontsize=12, color=self.colors['plot_text'], fontweight='bold')
+            self.ax_power.set_title('P-V Curve', fontsize=14, color=self.colors['plot_text'], fontweight='bold')
+            
+            # Set white background for P-V plot to match I-V plot
+            self.ax_power.set_facecolor(self.colors['plot_bg'])
+            
+            # Grid styling for P-V plot
+            self.ax_power.grid(True, linestyle='--', alpha=0.7, color=self.colors['plot_grid'])
+            
+            # Customize axes for P-V plot
+            for spine in self.ax_power.spines.values():
+                spine.set_color('#000000')  # Black spines
+                spine.set_linewidth(1.5)    # Slightly thicker
+            
+            # Tick styling for P-V plot
+            self.ax_power.tick_params(colors='#000000', direction='out', width=1.5, labelsize=10)
+            
+            # Add forward and reverse line objects for P-V plot
+            self.line_power_forward, = self.ax_power.plot(
+                [], [], 
+                color=self.colors['plot_forward'], 
+                marker='o', 
+                markersize=4,
+                linestyle='-', 
+                linewidth=2, 
+                label='Upward'
+            )
+            
+            self.line_power_reverse, = self.ax_power.plot(
+                [], [], 
+                color=self.colors['plot_reverse'], 
+                marker='o', 
+                markersize=4,
+                linestyle='-', 
+                linewidth=2, 
+                label='Downward'
+            )
+            
+            # Enhanced legend with black text for P-V plot (same as I-V plot)
+            legend_power = self.ax_power.legend(loc='upper right', frameon=True, fontsize=11)
+            legend_power.get_frame().set_facecolor('#ffffff')
+            legend_power.get_frame().set_alpha(0.9)
+            legend_power.get_frame().set_edgecolor('#000000')
+            
+            # Make legend text black for better visibility
+            for text in legend_power.get_texts():
+                text.set_color('#000000')
+        
         # Set background colors - keep plot bg white but use dark figure bg
         self.figure.set_facecolor(self.colors['plot_fig_bg'])
         self.ax.set_facecolor(self.colors['plot_bg'])
         
-        # Apply tight layout safely
+        # Apply tight layout safely (suppress warnings)
         try:
-            self.figure.tight_layout()
+            import warnings
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', message='The figure layout has changed to tight')
+                self.figure.tight_layout()
         except (ValueError, numpy.linalg.LinAlgError):
             pass
     
@@ -691,50 +799,7 @@ class MeasurementPanel(QWidget):
                 # Skip tight_layout if it fails due to invalid figure dimensions
                 pass
     
-    def load_preset(self):
-        """Load the selected preset configuration."""
-        preset_name = self.preset_combo.currentText()
-        if preset_name in self.presets:
-            preset = self.presets[preset_name]
-            
-            # Apply preset values
-            self.start_voltage_spin.setValue(preset["start_voltage"])
-            self.stop_voltage_spin.setValue(preset["stop_voltage"])
-            self.num_points_spin.setValue(preset["num_points"])
-            self.compliance_spin.setValue(preset["compliance"])
-            self.bidirectional_check.setChecked(preset["bidirectional"])
-            
-            # Show a brief status message
-            self.status_label.setText(f"Loaded preset: {preset_name}")
-    
-    def save_current_as_preset(self):
-        """Save current settings as a new preset."""
-        # Get current settings
-        current_settings = {
-            "start_voltage": self.start_voltage_spin.value(),
-            "stop_voltage": self.stop_voltage_spin.value(),
-            "num_points": self.num_points_spin.value(),
-            "compliance": self.compliance_spin.value(),
-            "bidirectional": self.bidirectional_check.isChecked()
-        }
-        
-        # Ask for preset name
-        preset_name, ok = QInputDialog.getText(self, "Save Preset", "Enter preset name:")
-        
-        if ok and preset_name:
-            # Add to presets dictionary
-            self.presets[preset_name] = current_settings
-            
-            # Update combo box
-            current_presets = [self.preset_combo.itemText(i) for i in range(self.preset_combo.count())]
-            if preset_name not in current_presets:
-                self.preset_combo.addItem(preset_name)
-            
-            # Select the new preset
-            self.preset_combo.setCurrentText(preset_name)
-            
-            # Show a brief status message
-            self.status_label.setText(f"Saved preset: {preset_name}")
+    # Removed preset methods - keeping only manual configuration
     
     def set_instrument(self, instrument):
         """Set the connected instrument."""
@@ -768,6 +833,24 @@ class MeasurementPanel(QWidget):
             )
             return
         
+        # Check if dual mode is selected but second instrument not connected
+        if self.get_measurement_mode() == "DC Bias + Sweep" and not self.instrument2:
+            QMessageBox.warning(
+                self,
+                "Second Instrument Required",
+                "DC Bias + Sweep mode requires both instruments to be connected."
+            )
+            return
+        
+        # Check if P-I-V mode is selected but PM100D not connected
+        if self.get_measurement_mode() == "P-I-V Measurement" and not self.pm100d_instrument:
+            QMessageBox.warning(
+                self,
+                "PM100D Required",
+                "P-I-V Measurement mode requires PM100D power meter to be connected."
+            )
+            return
+        
         # Validate parameters
         start_voltage = self.start_voltage_spin.value()
         stop_voltage = self.stop_voltage_spin.value()
@@ -792,14 +875,27 @@ class MeasurementPanel(QWidget):
             'bidirectional': self.bidirectional_check.isChecked(),
             'save_files': self.save_files_check.isChecked(),
             'device_name': self.device_name_edit.text(),
-            'instrument': self.instrument
+            'instrument': self.instrument,
+            'measurement_mode': self.get_measurement_mode(),
+            'instrument2': self.instrument2 if self.dual_mode else None,
+            'dc_bias_params': self.get_dc_bias_params() if self.dual_mode else None,
+            'pm100d_instrument': getattr(self, 'pm100d_instrument', None),
+            'pm100d_params': self.get_pm100d_params() if self.get_measurement_mode() == "P-I-V Measurement" else None
         }
         
         # Update UI state
         self.is_measuring = True
         self.status_label.setText("Measurement in progress...")
-        self.status_indicator.set_status("running")
+        self.status_label.setStyleSheet(f"""
+            padding: 8px;
+            border-radius: 5px;
+            background-color: {self.colors['success_bg']};
+            color: #27ae60;
+            font-weight: bold;
+            font-size: 13px;
+        """)
         self.progress_bar.setValue(0)
+        self.progress_bar.show()  # Show progress bar during measurement
         self.update_ui_state()
         
         # Initialize real-time plot data
@@ -817,8 +913,16 @@ class MeasurementPanel(QWidget):
         """Handle stop measurement button click."""
         # Update UI state
         self.is_measuring = False
-        self.status_label.setText("Measurement stopped")
-        self.status_indicator.set_status("stopped")
+        self.status_label.setText("⏹ Measurement stopped")
+        self.status_label.setStyleSheet(f"""
+            padding: 8px;
+            border-radius: 5px;
+            background-color: {self.colors['warning_bg']};
+            color: #f39c12;
+            font-weight: bold;
+            font-size: 13px;
+        """)
+        self.progress_bar.hide()  # Hide progress bar when stopped
         self.update_ui_state()
         
         # Emit signal
@@ -858,6 +962,55 @@ class MeasurementPanel(QWidget):
             
             self.ax.set_xlim(min(all_voltages) - margin_x, max(all_voltages) + margin_x)
             self.ax.set_ylim(min(all_currents) - margin_y, max(all_currents) + margin_y)
+        
+        # Redraw the canvas
+        self.canvas.draw()
+    
+    def update_real_time_data_piv(self, voltage, current, power, is_reverse=False):
+        """Update the plot with real-time P-I-V data during measurement."""
+        if not is_reverse:
+            self.current_data['voltage'].append(voltage)
+            self.current_data['current'].append(current)
+            self.current_data['power'].append(power)
+            self.line_forward.set_data(self.current_data['voltage'], self.current_data['current'])
+            # Update power plot if available
+            if hasattr(self, 'line_power_forward'):
+                self.line_power_forward.set_data(self.current_data['voltage'], self.current_data['power'])
+        else:
+            self.current_data['voltage_reverse'].append(voltage)
+            self.current_data['current_reverse'].append(current)
+            self.current_data['power_reverse'].append(power)
+            self.line_reverse.set_data(self.current_data['voltage_reverse'], self.current_data['current_reverse'])
+            # Update power plot if available
+            if hasattr(self, 'line_power_reverse'):
+                self.line_power_reverse.set_data(self.current_data['voltage_reverse'], self.current_data['power_reverse'])
+        
+        # Update axes limits with better padding for I-V plot
+        all_voltages = self.current_data['voltage']
+        all_currents = self.current_data['current']
+        
+        if len(self.current_data['voltage_reverse']) > 0:
+            all_voltages = np.concatenate((all_voltages, self.current_data['voltage_reverse']))
+            all_currents = np.concatenate((all_currents, self.current_data['current_reverse']))
+        
+        if len(all_voltages) > 0 and len(all_currents) > 0:
+            # Calculate margins with at least 10% padding
+            v_margin = max(0.1, (max(all_voltages) - min(all_voltages)) * 0.1)
+            i_margin = max(0.1, (max(all_currents) - min(all_currents)) * 0.1)
+            
+            self.ax.set_xlim(min(all_voltages) - v_margin, max(all_voltages) + v_margin)
+            self.ax.set_ylim(min(all_currents) - i_margin, max(all_currents) + i_margin)
+        
+        # Update axes limits for P-V plot if available
+        if hasattr(self, 'ax_power') and self.ax_power is not None:
+            all_powers = self.current_data['power']
+            if len(self.current_data['power_reverse']) > 0:
+                all_powers = np.concatenate((all_powers, self.current_data['power_reverse']))
+            
+            if len(all_voltages) > 0 and len(all_powers) > 0:
+                p_margin = max(0.1, (max(all_powers) - min(all_powers)) * 0.1)
+                self.ax_power.set_xlim(min(all_voltages) - v_margin, max(all_voltages) + v_margin)
+                self.ax_power.set_ylim(min(all_powers) - p_margin, max(all_powers) + p_margin)
         
         # Redraw the canvas
         self.canvas.draw()
@@ -928,47 +1081,67 @@ class MeasurementPanel(QWidget):
         
         self.canvas.draw()
     
-    def on_export_clicked(self):
-        """Handle export button click to save the plot as an image."""
-        if not (self.current_data['voltage'] or self.current_data['voltage_reverse']):
-            return  # Nothing to export
-        
-        # Get save path
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Plot",
-            os.path.expanduser("~/Desktop"),
-            "PNG Files (*.png);;PDF Files (*.pdf);;All Files (*)"
-        )
-        
-        if file_path:
-            try:
-                # Higher quality export
-                self.figure.savefig(file_path, dpi=300, bbox_inches='tight',
-                                   facecolor=self.figure.get_facecolor())
-            except Exception as e:
-                print(f"Error saving figure: {e}")
-                QMessageBox.warning(self, "Export Error", f"Failed to save the plot: {str(e)}")
-    
     def measurement_completed(self):
         """Handle measurement completion."""
         self.is_measuring = False
-        self.status_label.setText("Measurement completed")
-        self.status_indicator.set_status("completed")
+        self.status_label.setText("✅ Measurement completed successfully")
+        self.status_label.setStyleSheet(f"""
+            padding: 8px;
+            border-radius: 5px;
+            background-color: {self.colors['success_bg']};
+            color: #2ecc71;
+            font-weight: bold;
+            font-size: 13px;
+        """)
         self.progress_bar.setValue(100)
+        # Hide progress bar after brief delay to show 100%
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(1000, self.progress_bar.hide)
         self.update_ui_state()
     
     def measurement_error(self, error_message):
         """Handle measurement error."""
         self.is_measuring = False
-        self.status_label.setText(f"Error: {error_message}")
-        self.status_indicator.set_status("error")
+        self.status_label.setText(f"❌ Error: {error_message}")
+        self.status_label.setStyleSheet(f"""
+            padding: 8px;
+            border-radius: 5px;
+            background-color: {self.colors['error_bg']};
+            color: #e74c3c;
+            font-weight: bold;
+            font-size: 13px;
+        """)
+        self.progress_bar.hide()  # Hide progress bar on error
         self.update_ui_state()
     
     def update_ui_state(self):
         """Update UI elements based on connection and measurement state."""
         has_instrument = self.instrument is not None
         is_measuring = self.is_measuring
+        current_mode = self.get_measurement_mode()
+        
+        # Show/hide panels based on mode
+        if current_mode == "I-V Sweep":
+            if hasattr(self, 'sweep_group'):
+                self.sweep_group.show()
+            if hasattr(self, 'dc_bias_group'):
+                self.dc_bias_group.show() if self.dual_mode else self.dc_bias_group.hide()
+            if hasattr(self, 'pm100d_group'):
+                self.pm100d_group.hide()
+        elif current_mode == "Dual Keithley":
+            if hasattr(self, 'sweep_group'):
+                self.sweep_group.show()
+            if hasattr(self, 'dc_bias_group'):
+                self.dc_bias_group.show()
+            if hasattr(self, 'pm100d_group'):
+                self.pm100d_group.hide()
+        elif current_mode == "P-I-V Measurement":
+            if hasattr(self, 'sweep_group'):
+                self.sweep_group.show()
+            if hasattr(self, 'dc_bias_group'):
+                self.dc_bias_group.hide()
+            if hasattr(self, 'pm100d_group'):
+                self.pm100d_group.show()
         
         # Enable/disable controls based on measurement state
         self.start_voltage_spin.setEnabled(has_instrument and not is_measuring)
@@ -984,8 +1157,181 @@ class MeasurementPanel(QWidget):
         self.start_button.setEnabled(has_instrument and not is_measuring)
         self.stop_button.setEnabled(has_instrument and is_measuring)
         
-        # Update status indicator
-        if not has_instrument:
-            self.status_indicator.set_status("idle")
-        elif not is_measuring and not self.current_data['voltage']:
-            self.status_indicator.set_status("idle") 
+        # Update status label for idle state
+        if not has_instrument and not is_measuring:
+            self.status_label.setText("Ready - Connect instrument first")
+            self.status_label.setStyleSheet(f"""
+                padding: 8px;
+                border-radius: 5px;
+                background-color: {self.colors['input']};
+                color: {self.colors['text_secondary']};
+                font-weight: medium;
+                font-size: 13px;
+            """)
+        elif has_instrument and not is_measuring and not self.current_data['voltage']:
+            self.status_label.setText("Ready")
+            self.status_label.setStyleSheet(f"""
+                padding: 8px;
+                border-radius: 5px;
+                background-color: {self.colors['input']};
+                color: {self.colors['text_secondary']};
+                font-weight: medium;
+                font-size: 13px;
+            """)
+    
+    def set_instrument2(self, instrument2):
+        """Set the second connected instrument."""
+        self.instrument2 = instrument2
+        self.update_ui_state()
+    
+    def set_pm100d_instrument(self, pm100d_instrument):
+        """Set the PM100D instrument for P-I-V measurements."""
+        self.pm100d_instrument = pm100d_instrument
+        self.update_ui_state()
+    
+    def set_dual_mode(self, dual_mode):
+        """Set dual instrument mode."""
+        self.dual_mode = dual_mode
+        self.update_ui_state()
+        
+        # Show/hide DC bias settings based on mode
+        if dual_mode:
+            self.dc_bias_group.show()
+            self.mode_combo.setEnabled(True)
+        else:
+            self.dc_bias_group.hide()
+            self.mode_combo.setEnabled(False)
+            self.mode_combo.setCurrentText("Single Source")
+    
+    def on_mode_changed(self, mode_text):
+        """Handle measurement mode change."""
+        if mode_text == "Dual Keithley" and not self.dual_mode:
+            # Can't use dual mode without two instruments
+            self.mode_combo.setCurrentText("I-V Sweep")
+            return
+        
+        # Update plot layout based on mode
+        is_piv_mode = mode_text == "P-I-V Measurement"
+        self.customize_plot(is_piv_mode)
+        
+        # Update UI based on mode
+        self.update_ui_state()
+    
+    def get_measurement_mode(self):
+        """Get the current measurement mode."""
+        return self.mode_combo.currentText()
+    
+    def get_dc_bias_params(self):
+        """Get DC bias parameters for dual mode."""
+        return {
+            'voltage': self.dc_bias_voltage_spin.value(),
+            'compliance': self.dc_bias_compliance_spin.value()
+        }
+    
+    def get_pm100d_params(self):
+        """Get PM100D parameters for P-I-V measurement."""
+        return {
+            'wavelength': self.pm100d_wavelength_spin.value(),
+            'auto_range': self.pm100d_range_combo.currentText() == "Auto",
+            'manual_range': self.pm100d_manual_range_spin.value() if self.pm100d_range_combo.currentText() == "Manual" else None
+        }
+    
+    def save_plot(self, data, device_name, bidirectional):
+        """
+        Save the current plot as a PNG file.
+        
+        Args:
+            data: Measurement data dictionary
+            device_name: Device name/path for saving
+            bidirectional: Whether this was a bidirectional sweep
+        """
+        try:
+            # Create folder if it doesn't exist
+            os.makedirs(device_name, exist_ok=True)
+            
+            # Generate timestamp for filename
+            timestamp = time.strftime('%Y-%m-%d_%H%M.%S')
+            folder_name = os.path.basename(device_name)
+            base_path = os.path.join(device_name, f'I-V Curve - {folder_name} - [{timestamp}]')
+            
+            # Create a new figure for saving
+            import matplotlib.pyplot as plt
+            from matplotlib.figure import Figure
+            
+            fig = Figure(figsize=(8, 6), dpi=100)
+            ax = fig.add_subplot(111)
+            
+            # Apply dark theme styling (same as visualization panel)
+            plt.style.use('dark_background')
+            fig.patch.set_facecolor('#1e272e')
+            ax.set_facecolor('#1e272e')
+            
+            # Apply enhanced styling to axes
+            ax.tick_params(colors='#ecf0f1', labelsize=10, length=6, width=1)
+            ax.spines['bottom'].set_color('#34495e')
+            ax.spines['top'].set_color('#34495e')
+            ax.spines['left'].set_color('#34495e')
+            ax.spines['right'].set_color('#34495e')
+            
+            # Enhanced text styling
+            ax.xaxis.label.set_color('#ecf0f1')
+            ax.xaxis.label.set_fontsize(12)
+            ax.xaxis.label.set_fontweight('bold')
+            
+            ax.yaxis.label.set_color('#ecf0f1')
+            ax.yaxis.label.set_fontsize(12)
+            ax.yaxis.label.set_fontweight('bold')
+            
+            ax.title.set_color('#ecf0f1')
+            ax.title.set_fontsize(14)
+            ax.title.set_fontweight('bold')
+            
+            # Set plot labels
+            ax.set_xlabel('Voltage (V)')
+            ax.set_ylabel('Current (mA)')
+            ax.set_title('I-V Curve')
+            
+            # Grid styling
+            ax.grid(True, linestyle='--', alpha=0.3, color='#34495e')
+            
+            # Plot the data
+            if bidirectional:
+                # Plot forward sweep
+                ax.plot(data['voltage_forward'], data['current_forward'], 
+                       'b+-', label='Upward', linewidth=2, markersize=4)
+                # Plot reverse sweep
+                ax.plot(data['voltage_reverse'], data['current_reverse'], 
+                       'r+-', label='Downward', linewidth=2, markersize=4)
+            else:
+                # Plot single sweep
+                ax.plot(data['voltage'], data['current'], 
+                       'b+-', label='Upward', linewidth=2, markersize=4)
+            
+            # Create legend with enhanced styling
+            legend = ax.legend(loc='upper right', fontsize=11, frameon=True, 
+                             fancybox=True, shadow=True, framealpha=0.95)
+            legend.get_frame().set_facecolor('#2c3e50')
+            legend.get_frame().set_edgecolor('#34495e')
+            legend.get_frame().set_linewidth(1.0)
+            
+            # Make legend text white and bold
+            for text in legend.get_texts():
+                text.set_color('#ecf0f1')
+                text.set_fontweight('bold')
+            
+            # Apply tight layout
+            fig.tight_layout()
+            
+            # Save the plot
+            plot_path = base_path + '.png'
+            fig.savefig(plot_path, dpi=300, bbox_inches='tight', 
+                       facecolor='#1e272e', edgecolor='none')
+            
+            # Clean up
+            plt.close(fig)
+            
+            print(f"Plot saved to: {plot_path}")
+            
+        except Exception as e:
+            print(f"Error saving plot: {str(e)}")
+    

@@ -4,17 +4,12 @@ Visualization panel for displaying measurement results.
 
 import os
 import numpy as np
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QSizePolicy, QFrame, QLabel
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSizePolicy, QFrame, QLabel
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, Qt
+from ..theme import AppTheme, PlotTheme
 
 # Configure matplotlib with appropriate backend
-import matplotlib
-# Try to use Qt6Agg for PyQt6 if available
-try:
-    matplotlib.use('Qt6Agg')
-except:
-    # Fall back to Qt5Agg if Qt6Agg is not available
-    matplotlib.use('Qt5Agg')
+PlotTheme.setup_matplotlib()
 
 # Import backends after setting the backend
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -22,7 +17,6 @@ from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToo
 from matplotlib.figure import Figure
 import numpy.linalg
 import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
 
 
 class VisualizationPanel(QWidget):
@@ -34,30 +28,8 @@ class VisualizationPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         
-        # Define dark mode color scheme
-        self.colors = {
-            'primary': '#2980b9',    # Primary blue
-            'secondary': '#27ae60',  # Green for positive actions
-            'danger': '#c0392b',     # Red for negative actions
-            'warning': '#d35400',    # Orange for warnings/notifications
-            'dark': '#1e272e',       # Dark background
-            'darker': '#151c21',     # Darker background
-            'light': '#485460',      # Light backgrounds (dark mode)
-            'lighter': '#808e9b',    # Button/accent gray
-            'text': '#ecf0f1',       # Text color
-            'text_secondary': '#bdc3c7', # Secondary text
-            'border': '#34495e',     # Border color
-            'button': '#34495e',     # Button background
-            'input': '#2c3e50',      # Input field background
-            
-            # Plot colors - keep white background but use dark mode for elements
-            'plot_bg': '#ffffff',     # White background for plot
-            'plot_fig_bg': '#1e272e', # Dark figure background (outside plot area)
-            'plot_grid': '#cccccc',   # Light grid lines
-            'plot_forward': '#2980b9', # Forward line - blue
-            'plot_reverse': '#c0392b', # Reverse line - red
-            'plot_text': '#000000',    # Black text for plot labels for better visibility
-        }
+        # Get centralized theme colors
+        self.colors = AppTheme.get_colors()
         
         # Data storage
         self.voltage_forward = []
@@ -137,45 +109,39 @@ class VisualizationPanel(QWidget):
         self.canvas.draw()
     
     def customize_plot(self):
-        """Apply custom styling to the plot with dark background."""
-        # Set dark background for the plot area
-        self.ax.set_facecolor(self.colors['dark'])
-        self.figure.set_facecolor(self.colors['plot_fig_bg'])
+        """Apply custom styling to the plot with dark background matching Analysis tab."""
+        # Set dark mode style for plots with improved aesthetics (same as Analysis tab)
+        plt.style.use('dark_background')
+        self.figure.patch.set_facecolor('#1e272e')
+        self.ax.set_facecolor('#1e272e')
         
-        # Set plot appearance with white text for better visibility on dark background
-        self.ax.set_xlabel('Voltage (V)', fontsize=14, color='white', fontweight='bold')
-        self.ax.set_ylabel('Current (mA)', fontsize=14, color='white', fontweight='bold')
-        self.ax.set_title('I-V Curve', fontsize=16, color='white', fontweight='bold')
+        # Apply enhanced styling to axes (same as Analysis tab)
+        self.ax.tick_params(colors='#ecf0f1', labelsize=10, length=6, width=1)
+        self.ax.spines['bottom'].set_color('#34495e')
+        self.ax.spines['top'].set_color('#34495e')
+        self.ax.spines['left'].set_color('#34495e')
+        self.ax.spines['right'].set_color('#34495e')
+        
+        # Enhanced text styling (same as Analysis tab)
+        self.ax.xaxis.label.set_color('#ecf0f1')
+        self.ax.xaxis.label.set_fontsize(12)
+        self.ax.xaxis.label.set_fontweight('bold')
+        
+        self.ax.yaxis.label.set_color('#ecf0f1')
+        self.ax.yaxis.label.set_fontsize(12)
+        self.ax.yaxis.label.set_fontweight('bold')
+        
+        self.ax.title.set_color('#ecf0f1')
+        self.ax.title.set_fontsize(14)
+        self.ax.title.set_fontweight('bold')
+        
+        # Set plot labels
+        self.ax.set_xlabel('Voltage (V)')
+        self.ax.set_ylabel('Current (mA)')
+        self.ax.set_title('I-V Curve')
         
         # Grid styling - lighter grid for better contrast with data on dark background
-        self.ax.grid(True, linestyle='--', alpha=0.5, color='#555555')
-        
-        # Customize axes with thicker, more visible white spines
-        for spine in self.ax.spines.values():
-            spine.set_color('white')  # White spines
-            spine.set_linewidth(2.0)    # Thicker lines
-        
-        # Tick styling - white and bold for better visibility
-        self.ax.tick_params(
-            axis='both',
-            colors='white',  # White
-            direction='out', 
-            width=2.0,         # Thicker ticks
-            length=6,          # Longer ticks
-            labelsize=12,      # Larger font size
-            pad=6              # More padding between ticks and labels
-        )
-        
-        # Add dark background behind tick labels for better contrast with white text
-        for label in self.ax.get_xticklabels() + self.ax.get_yticklabels():
-            label.set_fontweight('bold')  # Make them bold
-            label.set_color('white')      # Ensure text is white
-            label.set_bbox(dict(
-                facecolor=self.colors['darker'],
-                edgecolor='none',
-                alpha=0.7,
-                pad=2
-            ))
+        self.ax.grid(True, linestyle='--', alpha=0.3, color='#34495e')
         
         # Add forward and reverse line objects with enhanced styling and renamed legends
         self.line_forward, = self.ax.plot(
@@ -205,22 +171,23 @@ class VisualizationPanel(QWidget):
             fontsize=12,        # Larger font
             framealpha=0.95     # More opaque background
         )
-        legend.get_frame().set_facecolor(self.colors['darker'])
-        legend.get_frame().set_edgecolor('white')
-        legend.get_frame().set_linewidth(1.5)  # Thicker border
+        legend.get_frame().set_facecolor('#2c3e50')  # Same as Analysis tab
+        legend.get_frame().set_edgecolor('#34495e')
+        legend.get_frame().set_linewidth(1.0)
         
         # Make legend text white and bold for better visibility
         for text in legend.get_texts():
-            text.set_color('white')
+            text.set_color('#ecf0f1')  # Same as Analysis tab
             text.set_fontweight('bold')
         
-        # Set background colors - dark for plot area
-        self.figure.set_facecolor(self.colors['plot_fig_bg'])
-        self.ax.set_facecolor(self.colors['dark'])
+        # Background colors already set in customize_plot method
         
-        # Apply tight layout safely
+        # Apply tight layout safely (suppress warnings)
         try:
-            self.figure.tight_layout()
+            import warnings
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', message='The figure layout has changed to tight')
+                self.figure.tight_layout()
         except (ValueError, numpy.linalg.LinAlgError):
             pass
     
@@ -229,7 +196,10 @@ class VisualizationPanel(QWidget):
         super().resizeEvent(event)
         if hasattr(self, 'figure'):
             try:
-                self.figure.tight_layout()
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings('ignore', message='The figure layout has changed to tight')
+                    self.figure.tight_layout()
                 self.canvas.draw()
             except (ValueError, numpy.linalg.LinAlgError):
                 # Skip tight_layout if it fails due to invalid figure dimensions
@@ -319,13 +289,17 @@ class VisualizationPanel(QWidget):
         
         # Apply tight layout to maximize plot area - wrap with try/except to handle LinAlgError
         try:
-            self.figure.tight_layout()
+            import warnings
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', message='The figure layout has changed to tight')
+                self.figure.tight_layout()
         except (ValueError, numpy.linalg.LinAlgError):
             # Skip tight_layout if dimensions are invalid or matrix is singular
             pass
         
         # Redraw the canvas
         self.canvas.draw()
+    
     
     def clear_plot(self):
         """Clear the plot."""
@@ -356,28 +330,6 @@ class VisualizationPanel(QWidget):
             parent.right_panel.hide()
             parent.main_splitter.setSizes([1000, 0])
     
-    def on_export_clicked(self):
-        """Handle export button click to save the plot as an image."""
-        if not (self.voltage_forward or self.voltage_reverse):
-            return  # Nothing to export
-        
-        # Get save path
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Plot",
-            os.path.expanduser("~/Desktop"),
-            "PNG Files (*.png);;PDF Files (*.pdf);;All Files (*)"
-        )
-        
-        if file_path:
-            try:
-                # Higher quality export
-                self.figure.savefig(file_path, dpi=300, bbox_inches='tight', 
-                                   facecolor=self.figure.get_facecolor(),
-                                   edgecolor='none')
-            except Exception as e:
-                print(f"Error saving figure: {e}")
-
 
 class CustomNavigationToolbar(NavigationToolbar):
     """Custom navigation toolbar with added clear button functionality."""

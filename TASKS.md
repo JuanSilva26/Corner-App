@@ -20,6 +20,15 @@ Create a user-friendly PyQt6 interface for controlling a Keithley source meter t
 - [x] Implement visualization panel for I-V curves
 - [x] Add data table view for measurements
 - [x] Design application menu and toolbar
+- [x] Fix current compliance setting bug in Keithley interface
+- [x] Implement dual instrument support (DC Bias + Sweep mode)
+- [x] Add collapsible second instrument connection UI
+- [x] Refactor Analysis tab with tool selection interface
+- [x] Fix TLM analysis fitted line display bug
+- [x] Implement IV Fit analysis with Schulman model fitting
+- [x] Add multi-format file support (CSV, Excel, TXT, DAT)
+- [x] Create two-column IV Fit layout with real-time parameter updates
+- [x] Enhance Data tab with file loading and plotting capabilities
 
 ## In Progress Tasks
 
