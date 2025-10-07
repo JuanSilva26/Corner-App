@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QGroupBox, QFormLayout, QFileDialog,
     QFrame, QScrollArea, QLineEdit, QMessageBox,
     QTableWidget, QTableWidgetItem, QHeaderView, QSplitter,
-    QSizePolicy, QDoubleSpinBox, QCheckBox
+    QSizePolicy, QDoubleSpinBox, QCheckBox, QInputDialog, QComboBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QLocale
 from ..theme import AppTheme
@@ -60,30 +60,34 @@ class TLMCanvas(FigureCanvas):
         self.fig = Figure(figsize=(width, height), dpi=dpi)
         self.axes = self.fig.add_subplot(111)
         
-        # Set dark mode style for plots with improved aesthetics
-        plt.style.use('dark_background')
-        self.fig.patch.set_facecolor('#1e272e')
-        self.axes.set_facecolor('#1e272e')
+        # Set light theme to match measurement plots
+        self.fig.patch.set_facecolor('#ffffff')  # White figure background
+        self.axes.set_facecolor('#ffffff')  # White plot background
         
-        # Apply enhanced styling to axes
-        self.axes.tick_params(colors='#ecf0f1', labelsize=10, length=6, width=1)
-        self.axes.spines['bottom'].set_color('#34495e')
-        self.axes.spines['top'].set_color('#34495e')
-        self.axes.spines['left'].set_color('#34495e')
-        self.axes.spines['right'].set_color('#34495e')
+        # Apply light theme styling to axes
+        self.axes.tick_params(colors='#333333', direction='out', width=1.5, labelsize=10)
+        self.axes.spines['bottom'].set_color('#000000')
+        self.axes.spines['top'].set_color('#000000')
+        self.axes.spines['left'].set_color('#000000')
+        self.axes.spines['right'].set_color('#000000')
+        for spine in self.axes.spines.values():
+            spine.set_linewidth(1.5)
         
-        # Enhanced text styling
-        self.axes.xaxis.label.set_color('#ecf0f1')
+        # Light theme text styling
+        self.axes.xaxis.label.set_color('#333333')
         self.axes.xaxis.label.set_fontsize(12)
         self.axes.xaxis.label.set_fontweight('bold')
         
-        self.axes.yaxis.label.set_color('#ecf0f1')
+        self.axes.yaxis.label.set_color('#333333')
         self.axes.yaxis.label.set_fontsize(12)
         self.axes.yaxis.label.set_fontweight('bold')
         
-        self.axes.title.set_color('#ecf0f1')
+        self.axes.title.set_color('#333333')
         self.axes.title.set_fontsize(14)
         self.axes.title.set_fontweight('bold')
+        
+        # Add grid like measurement plots
+        self.axes.grid(True, linestyle='--', alpha=0.7, color='#cccccc')
         
         super(TLMCanvas, self).__init__(self.fig)
         self.setParent(parent)
@@ -124,11 +128,23 @@ class TLMCanvas(FigureCanvas):
             # Store data for interaction
             self.plot_data = (distances, resistances)
             
-            # Convert resistances from ohms to kilohms for plotting
-            resistances_kohm = resistances / 1000.0
+            # Auto-adjust resistance units based on values
+            max_resistance = np.max(resistances)
+            if max_resistance < 1000:  # Less than 1kΩ, use Ω
+                resistances_display = resistances
+                resistance_unit = "Ω"
+                resistance_factor = 1.0
+            elif max_resistance < 1000000:  # Less than 1MΩ, use kΩ
+                resistances_display = resistances / 1000.0
+                resistance_unit = "kΩ"
+                resistance_factor = 1000.0
+            else:  # 1MΩ or more, use MΩ
+                resistances_display = resistances / 1000000.0
+                resistance_unit = "MΩ"
+                resistance_factor = 1000000.0
             
             # Plot the data points with enhanced styling
-            self.axes.scatter(distances, resistances_kohm, color='#3498db', s=100, 
+            self.axes.scatter(distances, resistances_display, color='#3498db', s=100, 
                           alpha=0.8, edgecolor='#2980b9', linewidth=2, 
                           label='Measured Data', zorder=3)
             
@@ -136,26 +152,16 @@ class TLMCanvas(FigureCanvas):
             if len(distances) > 1:  # Only plot line if we have more than one point
                 # Create a line from min to max distance
                 x_line = np.linspace(min(distances), max(distances), 100)
-                y_line = (slope * x_line + intercept) / 1000.0  # Convert to kΩ
+                y_line = (slope * x_line + intercept) / resistance_factor  # Convert to display units
                 
-                # Color code the fitted line based on quality
-                if r_squared < 0.5:
-                    line_color = '#e74c3c'  # Red for poor fit
-                    line_style = '--'
-                elif r_squared < 0.8:
-                    line_color = '#f39c12'  # Orange for moderate fit
-                    line_style = '-.'
-                else:
-                    line_color = '#2ecc71'  # Green for good fit
-                    line_style = '-'
-                
-                self.axes.plot(x_line, y_line, color=line_color, linewidth=3, 
-                             linestyle=line_style, alpha=0.9, label=f'Fitted Line (R² = {r_squared:.4f})', zorder=2)
+                # Plot fitted line with consistent styling
+                self.axes.plot(x_line, y_line, color='#e74c3c', linewidth=3, 
+                             linestyle='--', alpha=0.9, label=f'Fitted Line (R² = {r_squared:.4f})', zorder=2)
             
             # Set labels and title with improved formatting
             self.axes.set_xlabel('TLM Distance (μm)')
-            self.axes.set_ylabel('Resistance (kΩ)')
-            self.axes.set_title(f'TLM Analysis (Min Voltage: {min_voltage:.2f}V)')
+            self.axes.set_ylabel(f'Resistance ({resistance_unit})')
+            self.axes.set_title('TLM Resistance')
             
             # Apply log scales if enabled
             self.apply_log_scales()
@@ -170,36 +176,25 @@ class TLMCanvas(FigureCanvas):
             
             # Add calculated parameters as text on the plot
             if len(distances) > 1:
-                contact_resistance = intercept / 2.0 / 1000.0  # Convert to kΩ
-                sheet_resistance = slope / 1000.0  # Convert to kΩ/μm
-                
-                # Check for physically reasonable values
-                if r_squared < 0.5:
-                    quality_warning = "⚠️ Poor fit quality"
-                    text_color = '#e74c3c'
-                elif r_squared < 0.8:
-                    quality_warning = "⚠️ Moderate fit quality"
-                    text_color = '#f39c12'
-                else:
-                    quality_warning = "✅ Good fit quality"
-                    text_color = '#2ecc71'
+                contact_resistance = intercept / 2.0 / resistance_factor  # Convert to display units
+                sheet_resistance = slope / resistance_factor  # Convert to display units/μm
                 
                 # Check for negative resistances (physically impossible)
                 if sheet_resistance < 0:
-                    sheet_resistance_text = f"Sheet Resistance: {abs(sheet_resistance):.2f} kΩ/μm"
+                    sheet_resistance_text = f"Sheet Resistance: {abs(sheet_resistance):.2f} {resistance_unit}/μm"
                     text_color = '#e74c3c'
                 else:
-                    sheet_resistance_text = f"Sheet Resistance: {sheet_resistance:.2f} kΩ/μm"
+                    sheet_resistance_text = f"Sheet Resistance: {sheet_resistance:.2f} {resistance_unit}/μm"
                 
                 # Check for negative contact resistance
                 if contact_resistance < 0:
-                    contact_resistance_text = f"Contact Resistance: {abs(contact_resistance):.2f} kΩ"
+                    contact_resistance_text = f"Contact Resistance: {abs(contact_resistance):.2f} {resistance_unit}"
                     text_color = '#e74c3c'
                 else:
-                    contact_resistance_text = f"Contact Resistance: {contact_resistance:.2f} kΩ"
+                    contact_resistance_text = f"Contact Resistance: {contact_resistance:.2f} {resistance_unit}"
                 
-                # Create text box with parameters and quality assessment
-                textstr = f'{quality_warning}\n\n{contact_resistance_text}\n{sheet_resistance_text}\nR² = {r_squared:.4f}'
+                # Create text box with parameters only (no quality assessment)
+                textstr = f'{contact_resistance_text}\n{sheet_resistance_text}\nR² = {r_squared:.4f}'
                 props = dict(boxstyle='round', facecolor='#2c3e50', alpha=0.9, edgecolor='#34495e', linewidth=2)
                 self.axes.text(0.02, 0.98, textstr, transform=self.axes.transAxes, fontsize=10,
                              verticalalignment='top', bbox=props, color=text_color, fontweight='bold')
@@ -273,8 +268,8 @@ class TLMCanvas(FigureCanvas):
         new_ylim = [y_center - y_range/2, y_center + y_range/2]
         
         # Apply new limits
-        self.axes.set_xlim(new_xlim)
-        self.axes.set_ylim(new_ylim)
+        self.axes.set_xlim((new_xlim[0], new_xlim[1]))
+        self.axes.set_ylim((new_ylim[0], new_ylim[1]))
         self.draw()
     
     def add_annotation(self, x, y):
@@ -459,6 +454,10 @@ class AnalysisPanel(QWidget):
         # Create IV Fit analysis group (initially hidden)
         self.create_iv_fit_group()
         
+        # Create Multi-Region TLM analysis group (initially hidden)
+        self.create_multi_region_tlm_group()
+        self.create_multi_region_plot_section()
+        
         # Create data table and results section (initially hidden)
         self.create_results_section()
         
@@ -532,6 +531,31 @@ class AnalysisPanel(QWidget):
         self.iv_fit_button.setToolTip("I-V characteristic fitting to Schulman model")
         buttons_layout.addWidget(self.iv_fit_button)
         
+        # Multi-Region TLM Analysis button
+        self.multi_region_tlm_button = QPushButton("🌐 Multi-Region TLM")
+        self.multi_region_tlm_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {self.colors['light']};
+                color: {self.colors['text']};
+                border-radius: 6px;
+                padding: 10px 20px;
+                font-weight: bold;
+                font-size: 13px;
+                border: 2px solid {self.colors['border']};
+            }}
+            QPushButton:hover {{
+                background-color: {self.colors['darker']};
+                border: 2px solid {self.colors['primary']};
+            }}
+            QPushButton:pressed {{
+                background-color: {self.colors['primary']};
+                border: 2px solid {self.colors['primary']};
+            }}
+        """)
+        self.multi_region_tlm_button.clicked.connect(self.show_multi_region_tlm)
+        self.multi_region_tlm_button.setToolTip("Compare TLM analysis across multiple regions")
+        buttons_layout.addWidget(self.multi_region_tlm_button)
+        
         # More Tools button (placeholder)
         self.more_tools_button = QPushButton("🔧 More Tools")
         self.more_tools_button.setStyleSheet(f"""
@@ -574,10 +598,21 @@ class AnalysisPanel(QWidget):
         """Show TLM analysis interface when TLM button is clicked."""
         # Show TLM analysis components
         self.tlm_group.show()
+        self.results_section.show()
+        self.plot_section.show()
         
-        # Hide IV Fit analysis if visible
+        # Hide other analysis components
         if hasattr(self, 'iv_fit_group'):
             self.iv_fit_group.hide()
+            self.iv_fit_plot_section.hide()
+        
+        if hasattr(self, 'multi_region_tlm_group'):
+            self.multi_region_tlm_group.hide()
+            self.multi_region_plot_section.hide()
+        
+        # Hide placeholders
+        self.table_placeholder.hide()
+        self.plot_placeholder.hide()
         
         # Update button states
         self.tlm_button.setStyleSheet(f"""
@@ -606,8 +641,21 @@ class AnalysisPanel(QWidget):
                 border: 2px solid {self.colors['light']};
             }}
         """)
-        self.results_section.show()
-        self.plot_section.show()
+        self.multi_region_tlm_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {self.colors['lighter']};
+                color: {self.colors['text']};
+                border-radius: 6px;
+                padding: 10px 20px;
+                font-weight: bold;
+                font-size: 13px;
+                border: 2px solid {self.colors['lighter']};
+            }}
+            QPushButton:hover {{
+                background-color: {self.colors['light']};
+                border: 2px solid {self.colors['light']};
+            }}
+        """)
     
     def show_iv_fit_analysis(self):
         """Show IV Fit analysis interface when IV Fit button is clicked."""
@@ -615,12 +663,16 @@ class AnalysisPanel(QWidget):
         self.iv_fit_group.show()
         self.iv_fit_plot_section.show()
         
-        # Hide TLM analysis if visible
+        # Hide other analysis components
         self.tlm_group.hide()
         self.results_section.hide()
         self.plot_section.hide()
         
-        # Hide TLM placeholders
+        if hasattr(self, 'multi_region_tlm_group'):
+            self.multi_region_tlm_group.hide()
+            self.multi_region_plot_section.hide()
+        
+        # Hide placeholders
         self.table_placeholder.hide()
         self.plot_placeholder.hide()
         
@@ -637,6 +689,81 @@ class AnalysisPanel(QWidget):
             }}
         """)
         self.tlm_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {self.colors['lighter']};
+                color: {self.colors['text']};
+                border-radius: 6px;
+                padding: 10px 20px;
+                font-weight: bold;
+                font-size: 13px;
+                border: 2px solid {self.colors['lighter']};
+            }}
+            QPushButton:hover {{
+                background-color: {self.colors['light']};
+                border: 2px solid {self.colors['light']};
+            }}
+        """)
+        self.multi_region_tlm_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {self.colors['lighter']};
+                color: {self.colors['text']};
+                border-radius: 6px;
+                padding: 10px 20px;
+                font-weight: bold;
+                font-size: 13px;
+                border: 2px solid {self.colors['lighter']};
+            }}
+            QPushButton:hover {{
+                background-color: {self.colors['light']};
+                border: 2px solid {self.colors['light']};
+            }}
+        """)
+    
+    def show_multi_region_tlm(self):
+        """Show Multi-Region TLM analysis interface."""
+        # Show Multi-Region TLM components
+        self.multi_region_tlm_group.show()
+        self.multi_region_plot_section.show()
+        
+        # Hide other analysis components
+        self.tlm_group.hide()
+        self.results_section.hide()
+        self.plot_section.hide()
+        self.iv_fit_group.hide()
+        self.iv_fit_plot_section.hide()
+        
+        # Hide placeholders
+        self.table_placeholder.hide()
+        self.plot_placeholder.hide()
+        
+        # Update button states
+        self.multi_region_tlm_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {self.colors['primary']};
+                color: {self.colors['text']};
+                border-radius: 6px;
+                padding: 10px 20px;
+                font-weight: bold;
+                font-size: 13px;
+                border: 2px solid {self.colors['primary']};
+            }}
+        """)
+        self.tlm_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {self.colors['lighter']};
+                color: {self.colors['text']};
+                border-radius: 6px;
+                padding: 10px 20px;
+                font-weight: bold;
+                font-size: 13px;
+                border: 2px solid {self.colors['lighter']};
+            }}
+            QPushButton:hover {{
+                background-color: {self.colors['light']};
+                border: 2px solid {self.colors['light']};
+            }}
+        """)
+        self.iv_fit_button.setStyleSheet(f"""
             QPushButton {{
                 background-color: {self.colors['lighter']};
                 color: {self.colors['text']};
@@ -806,23 +933,7 @@ class AnalysisPanel(QWidget):
         self.clear_annotations_button.setToolTip("Remove all annotations from plot")
         button_layout.addWidget(self.clear_annotations_button)
         
-        # Back button
-        self.back_button = QPushButton("← Back to Tools")
-        self.back_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self.colors['warning']};
-                color: {self.colors['text']};
-                border-radius: 5px;
-                padding: 8px 15px;
-                font-weight: bold;
-                border: none;
-            }}
-            QPushButton:hover {{
-                background-color: #e67e22;
-            }}
-        """)
-        self.back_button.clicked.connect(self.back_to_tools)
-        button_layout.addWidget(self.back_button)
+        # Back button removed as requested
         
         tlm_layout.addLayout(button_layout)
         self.layout.addWidget(tlm_group)
@@ -835,7 +946,7 @@ class AnalysisPanel(QWidget):
         """Create section for displaying TLM results and data table."""
         # Create a table to display the loaded files and distances
         self.tlm_table = QTableWidget(0, 4)  # Rows will be added dynamically
-        self.tlm_table.setHorizontalHeaderLabels(['Filename', 'TLM Distance (μm)', 'Resistance (kΩ)', 'R²'])
+        self.tlm_table.setHorizontalHeaderLabels(['Filename', 'TLM Distance (μm)', 'Resistance', 'R²'])
         self.tlm_table.setStyleSheet(self.TABLE_STYLE)
         self.tlm_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.tlm_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -1088,10 +1199,8 @@ class AnalysisPanel(QWidget):
                 # Perform linear regression to extract resistance (V = IR, so slope = R)
                 # We'll fit current vs. voltage (I = V/R) and take 1/slope for R
                 try:
-                    # Use the tuple unpacking with direct indexing to avoid attribute access issues
-                    linregress_output = stats.linregress(filtered_voltage, filtered_current_amps)
-                    slope = linregress_output[0]  # slope is the first element
-                    r_value = linregress_output[2]  # r_value is the third element
+                    # Perform linear regression
+                    slope, intercept, r_value, p_value, std_err = stats.linregress(filtered_voltage, filtered_current_amps)
                     
                     # Check if slope is valid
                     if abs(slope) < 1e-10 or np.isnan(slope):
@@ -1100,14 +1209,21 @@ class AnalysisPanel(QWidget):
                         return
                         
                     resistance = 1.0 / slope  # R = 1/slope (now in ohms)
-                    resistance_kohms = resistance / 1000.0  # Convert to kilohms
                     r_squared = r_value * r_value  # R² value
                     
                     # Store the resistance in ohms for TLM analysis
                     self.resistances.append(resistance)
                     
-                    # Update the table with resistance in kilohms
-                    self.tlm_table.setItem(row, 2, QTableWidgetItem(f"{resistance_kohms:.4f}"))
+                    # Auto-format resistance for table display
+                    if resistance < 1000:  # Less than 1kΩ, use Ω
+                        resistance_display = f"{resistance:.1f} Ω"
+                    elif resistance < 1000000:  # Less than 1MΩ, use kΩ
+                        resistance_display = f"{resistance/1000.0:.4f} kΩ"
+                    else:  # 1MΩ or more, use MΩ
+                        resistance_display = f"{resistance/1000000.0:.4f} MΩ"
+                    
+                    # Update the table with auto-formatted resistance
+                    self.tlm_table.setItem(row, 2, QTableWidgetItem(resistance_display))
                     self.tlm_table.setItem(row, 3, QTableWidgetItem(f"{r_squared:.4f}"))
                     
                 except Exception as e:
@@ -1139,11 +1255,8 @@ class AnalysisPanel(QWidget):
             
             # Linear regression of resistance vs. distance
             try:
-                # Use the tuple unpacking with direct indexing to avoid attribute access issues
-                linregress_output = stats.linregress(distances, resistances)
-                slope = linregress_output[0]  # slope is the first element
-                intercept = linregress_output[1]  # intercept is the second element
-                r_value = linregress_output[2]  # r_value is the third element
+                # Perform linear regression
+                slope, intercept, r_value, p_value, std_err = stats.linregress(distances, resistances)
                 
                 # Check for valid regression results
                 if np.isnan(slope) or np.isnan(intercept) or np.isnan(r_value):
@@ -1153,23 +1266,7 @@ class AnalysisPanel(QWidget):
                     
                 r_squared = r_value * r_value
                 
-                # Check for poor fit quality and warn user
-                if r_squared < 0.5:
-                    QMessageBox.warning(self, "Poor Fit Quality", 
-                                      f"TLM analysis shows poor fit quality (R² = {r_squared:.4f}).\n\n"
-                                      "This may indicate:\n"
-                                      "• Incorrect TLM distances\n"
-                                      "• Poor measurement data\n"
-                                      "• Non-linear behavior\n"
-                                      "• Insufficient data points\n\n"
-                                      "Consider checking your data and TLM distances.")
-                elif r_squared < 0.8:
-                    QMessageBox.information(self, "Moderate Fit Quality", 
-                                          f"TLM analysis shows moderate fit quality (R² = {r_squared:.4f}).\n\n"
-                                          "Consider:\n"
-                                          "• Checking TLM distances\n"
-                                          "• Verifying measurement quality\n"
-                                          "• Adding more data points")
+                # Note: Warning popups removed - quality indicators are shown in the plot instead
                 
                 # Hide placeholder and show plot
                 self.plot_placeholder.hide()
@@ -1398,29 +1495,7 @@ class AnalysisPanel(QWidget):
         
         left_column.addWidget(button_group)
         
-        # Back button
-        self.back_iv_button = QPushButton("← Back to Tools")
-        self.back_iv_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self.colors['warning']};
-                color: {self.colors['text']};
-                border-radius: 8px;
-                padding: 10px 20px;
-                font-weight: bold;
-                font-size: 12px;
-                border: 2px solid {self.colors['warning']};
-            }}
-            QPushButton:hover {{
-                background-color: #e67e22;
-                border: 2px solid #e67e22;
-            }}
-            QPushButton:pressed {{
-                background-color: #d35400;
-                border: 2px solid #d35400;
-            }}
-        """)
-        self.back_iv_button.clicked.connect(self.back_to_tools)
-        button_layout.addWidget(self.back_iv_button)
+        # Back button removed as requested
         
         left_column.addLayout(button_layout)
         
@@ -1453,6 +1528,184 @@ class AnalysisPanel(QWidget):
         # Store reference and initially hide
         self.iv_fit_plot_section = self.iv_fit_canvas
         self.iv_fit_plot_section.hide()
+    
+    def create_multi_region_tlm_group(self):
+        """Create Multi-Region TLM analysis control group."""
+        # Create main container
+        multi_region_container = QWidget()
+        multi_region_layout = QHBoxLayout(multi_region_container)
+        multi_region_layout.setContentsMargins(0, 0, 0, 0)
+        multi_region_layout.setSpacing(15)
+        
+        # Left column - Controls
+        left_column = QVBoxLayout()
+        left_column.setSpacing(10)
+        
+        # Title and description
+        title_label = QLabel("Multi-Region TLM Analysis")
+        title_label.setStyleSheet(f"""
+            font-size: 18px;
+            font-weight: bold;
+            color: {self.colors['text']};
+            padding: 10px;
+            background-color: {self.colors['darker']};
+            border-radius: 8px;
+            border: 1px solid {self.colors['border']};
+        """)
+        left_column.addWidget(title_label)
+        
+        # Region management section
+        region_group = QGroupBox("Region Management")
+        region_group.setStyleSheet(self.GROUP_STYLE)
+        region_layout = QVBoxLayout(region_group)
+        
+        # Add region button
+        self.add_region_button = QPushButton("➕ Add Region")
+        self.add_region_button.setStyleSheet(self.PRIMARY_BUTTON_STYLE)
+        self.add_region_button.clicked.connect(self.add_region)
+        region_layout.addWidget(self.add_region_button)
+        
+        # Region list
+        self.region_list = QTableWidget(0, 4)
+        self.region_list.setHorizontalHeaderLabels(['Region Name', 'Files', 'Status', 'Actions'])
+        self.region_list.setStyleSheet(self.TABLE_STYLE)
+        self.region_list.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.region_list.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.region_list.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.region_list.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.region_list.setMaximumHeight(200)
+        region_layout.addWidget(self.region_list)
+        
+        left_column.addWidget(region_group)
+        
+        # Analysis settings section
+        settings_group = QGroupBox("Analysis Settings")
+        settings_group.setStyleSheet(self.GROUP_STYLE)
+        settings_layout = QFormLayout(settings_group)
+        
+        # Min voltage setting
+        self.multi_min_voltage_input = QDoubleSpinBox()
+        self.multi_min_voltage_input.setRange(0.0, 10.0)
+        self.multi_min_voltage_input.setValue(0.0)
+        self.multi_min_voltage_input.setDecimals(3)
+        self.multi_min_voltage_input.setSuffix(" V")
+        self.multi_min_voltage_input.setStyleSheet(self.INPUT_STYLE)
+        settings_layout.addRow("Min. Voltage for Fitting:", self.multi_min_voltage_input)
+        
+        # Plot title setting
+        self.multi_plot_title_input = QLineEdit("Multi-Region TLM Analysis")
+        self.multi_plot_title_input.setStyleSheet(self.INPUT_STYLE)
+        settings_layout.addRow("Plot Title:", self.multi_plot_title_input)
+        
+        # Plot will always use light style - no customization needed
+        
+        left_column.addWidget(settings_group)
+        
+        # File management section
+        files_group = QGroupBox("File Management")
+        files_group.setStyleSheet(self.GROUP_STYLE)
+        files_layout = QVBoxLayout(files_group)
+        
+        # Load files button (single button for continuous loading)
+        self.load_files_button = QPushButton("📁 Load TLM Files")
+        self.load_files_button.setStyleSheet(self.PRIMARY_BUTTON_STYLE)
+        self.load_files_button.clicked.connect(self.load_tlm_files_continuous)
+        files_layout.addWidget(self.load_files_button)
+        
+        # File list display
+        self.multi_files_label = QLabel("No files loaded")
+        self.multi_files_label.setStyleSheet(f"color: {self.colors['text_secondary']}; padding: 5px;")
+        self.multi_files_label.setWordWrap(True)
+        files_layout.addWidget(self.multi_files_label)
+        
+        # Files table with better sizing and scroll
+        self.multi_files_table = QTableWidget(0, 3)
+        self.multi_files_table.setHorizontalHeaderLabels(['File', 'Distance (μm)', 'Region'])
+        self.multi_files_table.setStyleSheet(self.TABLE_STYLE)
+        self.multi_files_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.multi_files_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.multi_files_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.multi_files_table.setMinimumHeight(300)  # Smaller minimum height
+        self.multi_files_table.setMaximumHeight(400)  # Smaller maximum height to force scrolling
+        # Enable scrolling - force scroll bars to always be visible
+        self.multi_files_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.multi_files_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        # Set a fixed row height to ensure all rows are visible
+        self.multi_files_table.verticalHeader().setDefaultSectionSize(25)
+        # Ensure the table can scroll properly
+        self.multi_files_table.setAlternatingRowColors(True)
+        self.multi_files_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        # Force the scrollbar to be visible by setting a size policy
+        self.multi_files_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.multi_files_table.cellDoubleClicked.connect(self.edit_file_distance)
+        # Also connect cell changed for immediate updates
+        self.multi_files_table.cellChanged.connect(self.on_cell_changed)
+        files_layout.addWidget(self.multi_files_table)
+        
+        left_column.addWidget(files_group)
+        
+        # Action buttons
+        button_group = QGroupBox("Actions")
+        button_group.setStyleSheet(self.GROUP_STYLE)
+        button_layout = QVBoxLayout(button_group)
+        
+        # Analysis button
+        self.analyze_multi_region_button = QPushButton("🔬 Analyze All Regions")
+        self.analyze_multi_region_button.setStyleSheet(self.SECONDARY_BUTTON_STYLE)
+        self.analyze_multi_region_button.clicked.connect(self.analyze_all_regions)
+        self.analyze_multi_region_button.setEnabled(False)
+        button_layout.addWidget(self.analyze_multi_region_button)
+        
+        # Bottom row buttons
+        bottom_buttons = QHBoxLayout()
+        self.clear_multi_region_button = QPushButton("🗑️ Clear All")
+        self.clear_multi_region_button.setStyleSheet(self.BUTTON_STYLE)
+        self.clear_multi_region_button.clicked.connect(self.clear_multi_region_analysis)
+        bottom_buttons.addWidget(self.clear_multi_region_button)
+        
+        self.export_multi_region_button = QPushButton("💾 Export Results")
+        self.export_multi_region_button.setStyleSheet(self.BUTTON_STYLE)
+        self.export_multi_region_button.clicked.connect(self.export_multi_region_results)
+        self.export_multi_region_button.setEnabled(False)
+        bottom_buttons.addWidget(self.export_multi_region_button)
+        
+        button_layout.addLayout(bottom_buttons)
+        
+        # Back button removed as requested
+        
+        left_column.addWidget(button_group)
+        
+        # Right column - Plot (will be added in create_multi_region_plot_section)
+        self.multi_region_right_column = QVBoxLayout()
+        
+        # Add columns to main layout
+        multi_region_layout.addLayout(left_column, 1)  # Left column takes 1/3 of space
+        multi_region_layout.addLayout(self.multi_region_right_column, 2)  # Right column takes 2/3 of space
+        
+        self.layout.addWidget(multi_region_container)
+        
+        # Store reference and initially hide
+        self.multi_region_tlm_group = multi_region_container
+        self.multi_region_tlm_group.hide()
+        
+        # Initialize data storage
+        self.regions_data = {}  # Store data for each region
+        self.multi_loaded_files = []  # Store loaded file paths
+        self.file_data = {}  # Store file-specific data (distance, region)
+        self.region_colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#34495e']
+        self.current_color_index = 0
+    
+    def create_multi_region_plot_section(self):
+        """Create section for displaying Multi-Region TLM plot in the right column."""
+        # Create a single plot for the Multi-Region TLM analysis
+        self.multi_region_canvas = TLMCanvas(self, width=20, height=8)
+        
+        # Add the canvas to the right column
+        self.multi_region_right_column.addWidget(self.multi_region_canvas, stretch=1)
+        
+        # Store reference and initially hide
+        self.multi_region_plot_section = self.multi_region_canvas
+        self.multi_region_plot_section.hide()
     
     def load_iv_file(self):
         """Load I-V measurement file."""
@@ -1885,4 +2138,717 @@ class AnalysisPanel(QWidget):
         # This method can be implemented in the future to automatically 
         # add measurement data to the TLM analysis
         # Currently not used for direct data processing
-        pass 
+        pass
+    
+    # Multi-Region TLM Methods
+    def add_region(self):
+        """Add a new region to the multi-region analysis."""
+        
+        region_name, ok = QInputDialog.getText(
+            self, 'Add Region', 'Enter region name:',
+            text=f'Region {len(self.regions_data) + 1}'
+        )
+        
+        if ok and region_name:
+            if region_name in self.regions_data:
+                QMessageBox.warning(self, "Duplicate Region", f"Region '{region_name}' already exists.")
+                return
+            
+            # Add to regions data
+            self.regions_data[region_name] = {
+                'files': [],
+                'distances': [],
+                'resistances': [],
+                'color': self.region_colors[self.current_color_index % len(self.region_colors)],
+                'analyzed': False
+            }
+            self.current_color_index += 1
+            
+            # Update region list
+            self.update_region_list()
+            
+            # Update files table to include new region in dropdowns
+            self.update_multi_files_table()
+    
+    def update_region_list(self):
+        """Update the region list table."""
+        self.region_list.setRowCount(len(self.regions_data))
+        
+        for row, (region_name, data) in enumerate(self.regions_data.items()):
+            # Region name
+            self.region_list.setItem(row, 0, QTableWidgetItem(region_name))
+            
+            # File count
+            file_count = len(data['files'])
+            self.region_list.setItem(row, 1, QTableWidgetItem(str(file_count)))
+            
+            # Status
+            status = "✅ Analyzed" if data['analyzed'] else "⏳ Pending" if file_count > 0 else "📁 No Files"
+            self.region_list.setItem(row, 2, QTableWidgetItem(status))
+            
+            # Actions
+            actions_widget = QWidget()
+            actions_layout = QHBoxLayout(actions_widget)
+            actions_layout.setContentsMargins(2, 2, 2, 2)
+            
+            remove_button = QPushButton("🗑️")
+            remove_button.setToolTip("Remove this region")
+            remove_button.setMaximumWidth(30)
+            remove_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {self.colors['danger']};
+                    color: {self.colors['text']};
+                    border-radius: 3px;
+                    padding: 2px;
+                    font-size: 10px;
+                }}
+            """)
+            remove_button.clicked.connect(lambda checked, name=region_name: self.remove_region(name))
+            actions_layout.addWidget(remove_button)
+            
+            self.region_list.setCellWidget(row, 3, actions_widget)
+    
+    def load_tlm_files_continuous(self):
+        """Load TLM files continuously (adds to existing collection)."""
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self, "Select TLM Files", "",
+            "Text Files (*.txt);;All Files (*)"
+        )
+        
+        if file_paths:
+            # Add new files to existing collection
+            for file_path in file_paths:
+                if file_path not in self.multi_loaded_files:
+                    self.multi_loaded_files.append(file_path)
+                    # Initialize file data
+                    self.file_data[file_path] = {
+                        'distance': 10.0,  # Default distance
+                        'region': 'Not assigned'
+                    }
+            
+            self.update_multi_files_display()
+            # Only update table if it's empty, otherwise preserve existing UI
+            if self.multi_loaded_files and self.multi_files_table.rowCount() == 0:
+                self.update_multi_files_table()
+            elif self.multi_loaded_files:
+                # Just add new rows without resetting existing ones
+                self.add_new_files_to_table()
+            self.analyze_multi_region_button.setEnabled(True)
+    
+    def update_multi_files_display(self):
+        """Update the files label display."""
+        if not self.multi_loaded_files:
+            self.multi_files_label.setText("No files loaded")
+        else:
+            file_count = len(self.multi_loaded_files)
+            self.multi_files_label.setText(f"{file_count} file{'s' if file_count != 1 else ''} loaded")
+    
+    def update_multi_files_table(self):
+        """Update the files table with current loaded files."""
+        self.multi_files_table.setRowCount(len(self.multi_loaded_files))
+        
+        for row, file_path in enumerate(self.multi_loaded_files):
+            filename = os.path.basename(file_path)
+            
+            # File name
+            self.multi_files_table.setItem(row, 0, QTableWidgetItem(filename))
+            
+            # Distance (simple text like regular TLM)
+            distance = self.file_data.get(file_path, {}).get('distance', 10.0)
+            self.multi_files_table.setItem(row, 1, QTableWidgetItem(f"{distance:.1f} μm"))
+            
+            # Region selection
+            region_combo = QComboBox()
+            region_combo.addItem("Not assigned")
+            region_combo.addItems(list(self.regions_data.keys()))
+            region_combo.setCurrentText(self.file_data.get(file_path, {}).get('region', 'Not assigned'))
+            region_combo.setStyleSheet(f"""
+                QComboBox {{
+                    background-color: {self.colors['input']};
+                    color: {self.colors['text']};
+                    border: 1px solid {self.colors['border']};
+                    border-radius: 4px;
+                    padding: 4px;
+                }}
+            """)
+            region_combo.currentTextChanged.connect(lambda text, fp=file_path: self.update_file_region(fp, text))
+            self.multi_files_table.setCellWidget(row, 2, region_combo)
+    
+    def add_new_files_to_table(self):
+        """Add only new files to the table without resetting existing ones."""
+        current_row_count = self.multi_files_table.rowCount()
+        new_files_count = len(self.multi_loaded_files) - current_row_count
+        
+        if new_files_count > 0:
+            # Add new rows for new files
+            self.multi_files_table.setRowCount(len(self.multi_loaded_files))
+            
+            # Only populate the new rows
+            for row in range(current_row_count, len(self.multi_loaded_files)):
+                file_path = self.multi_loaded_files[row]
+                filename = os.path.basename(file_path)
+                
+                # File name
+                self.multi_files_table.setItem(row, 0, QTableWidgetItem(filename))
+                
+                # Distance (simple text like regular TLM)
+                distance = self.file_data.get(file_path, {}).get('distance', 10.0)
+                self.multi_files_table.setItem(row, 1, QTableWidgetItem(f"{distance:.1f} μm"))
+                
+                # Region selection
+                region_combo = QComboBox()
+                region_combo.addItem("Not assigned")
+                region_combo.addItems(list(self.regions_data.keys()))
+                region_combo.setCurrentText(self.file_data.get(file_path, {}).get('region', 'Not assigned'))
+                region_combo.setStyleSheet(f"""
+                    QComboBox {{
+                        background-color: {self.colors['input']};
+                        color: {self.colors['text']};
+                        border: 1px solid {self.colors['border']};
+                        border-radius: 4px;
+                        padding: 4px;
+                    }}
+                """)
+                region_combo.currentTextChanged.connect(lambda text, fp=file_path: self.update_file_region(fp, text))
+                self.multi_files_table.setCellWidget(row, 2, region_combo)
+    
+    def update_file_distance(self, file_path, distance):
+        """Update distance for a specific file."""
+        if file_path in self.file_data:
+            self.file_data[file_path]['distance'] = distance
+            # Distance updated successfully
+    
+    def update_file_region(self, file_path, region):
+        """Update region assignment for a specific file."""
+        if file_path in self.file_data:
+            self.file_data[file_path]['region'] = region
+    
+    def edit_file_distance(self, row, column):
+        """Edit file distance when double-clicking on distance column."""
+        if column == 1 and row < len(self.multi_loaded_files):  # Distance column
+            file_path = self.multi_loaded_files[row]
+            current_distance = self.file_data.get(file_path, {}).get('distance', 10.0)
+            
+            distance, ok = QInputDialog.getDouble(
+                self, 'Edit Distance', f'Enter distance for {os.path.basename(file_path)}:',
+                value=current_distance, min=0.1, max=1000.0, decimals=1
+            )
+            
+            if ok:
+                # Update file_data first
+                if file_path in self.file_data:
+                    self.file_data[file_path]['distance'] = distance
+                # Update only the specific cell, don't recreate the whole table
+                self.multi_files_table.setItem(row, 1, QTableWidgetItem(f"{distance:.1f} μm"))
+    
+    def on_cell_changed(self, row, column):
+        """Handle when a cell is changed directly in the table."""
+        if column == 1 and row < len(self.multi_loaded_files):  # Distance column
+            file_path = self.multi_loaded_files[row]
+            item = self.multi_files_table.item(row, column)
+            if item:
+                try:
+                    # Extract numeric value from text like "10.0 μm"
+                    text = item.text()
+                    distance = float(text.replace(' μm', '').replace('μm', ''))
+                    
+                    # Update file_data
+                    if file_path in self.file_data:
+                        self.file_data[file_path]['distance'] = distance
+                except ValueError:
+                    pass  # Silently ignore invalid values
+    
+    def remove_region(self, region_name):
+        """Remove a region from the analysis."""
+        reply = QMessageBox.question(
+            self, 'Remove Region', 
+            f'Are you sure you want to remove region "{region_name}"?',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            del self.regions_data[region_name]
+            self.update_region_list()
+            
+            # Update analyze button state
+            has_files = any(len(data['files']) > 0 for data in self.regions_data.values())
+            self.analyze_multi_region_button.setEnabled(has_files)
+            
+            # Replot if we have data
+            if has_files:
+                self.plot_multi_region_data()
+    
+    def analyze_all_regions(self):
+        """Analyze all regions and create comparison plot."""
+        if not self.regions_data:
+            QMessageBox.warning(self, "No Regions", "Please add regions and assign files first.")
+            return
+        
+        min_voltage = self.multi_min_voltage_input.value()
+        
+        # Group files by region from file_data
+        region_files = {}
+        for file_path, data in self.file_data.items():
+            region = data['region']
+            if region != 'Not assigned':
+                if region not in region_files:
+                    region_files[region] = []
+                region_files[region].append({
+                    'file_path': file_path,
+                    'distance': data['distance']
+                })
+        
+        if not region_files:
+            QMessageBox.warning(self, "No Assigned Files", "Please assign files to regions in the table.")
+            return
+        
+        # Check if we have valid distances
+        for region, files in region_files.items():
+            distances = [f['distance'] for f in files]
+            if len(set(distances)) == 1:
+                QMessageBox.warning(self, "Identical Distances", f"All distances in region {region} are identical: {distances[0]}")
+        
+        # Analyze each region
+        for region_name, files in region_files.items():
+            if region_name not in self.regions_data:
+                continue
+            
+            try:
+                # Process files for this region using the new structure
+                distances, resistances = self.process_region_files_new(files, min_voltage)
+                
+                if len(distances) > 1:
+                    # Perform linear regression
+                    slope, intercept, r_value, p_value, std_err = stats.linregress(distances, resistances)
+                    r_squared = r_value * r_value
+                    
+                    # Store results
+                    self.regions_data[region_name]['distances'] = distances
+                    self.regions_data[region_name]['resistances'] = resistances
+                    self.regions_data[region_name]['slope'] = slope
+                    self.regions_data[region_name]['intercept'] = intercept
+                    self.regions_data[region_name]['r_squared'] = r_squared
+                    self.regions_data[region_name]['analyzed'] = True
+                else:
+                    self.regions_data[region_name]['analyzed'] = False
+                    
+            except Exception as e:
+                QMessageBox.warning(self, "Analysis Error", f"Error analyzing region {region_name}: {str(e)}")
+                self.regions_data[region_name]['analyzed'] = False
+        
+        # Update region list
+        self.update_region_list()
+        
+        # Plot comparison
+        self.plot_multi_region_data()
+        
+        # Enable export button
+        self.export_multi_region_button.setEnabled(True)
+    
+    def process_region_files(self, file_paths, min_voltage):
+        """Process TLM files for a region and return distances and resistances."""
+        distances = []
+        resistances = []
+        
+        for file_path in file_paths:
+            try:
+                # Load and process the file (similar to single TLM analysis)
+                voltage, current = self.load_iv_data_from_file(file_path)
+                
+                if len(voltage) == 0 or len(current) == 0:
+                    continue
+                
+                # Extract TLM distance from filename or ask user
+                distance = self.extract_distance_from_filename(file_path)
+                if distance is None:
+                    distance, ok = QInputDialog.getDouble(
+                        self, 'TLM Distance', 
+                        f'Enter TLM distance for {os.path.basename(file_path)}:',
+                        value=10.0, min=0.1, max=1000.0, decimals=1
+                    )
+                    if not ok:
+                        continue
+                
+                # Filter data based on minimum voltage
+                valid_indices = voltage >= min_voltage
+                if np.sum(valid_indices) < 2:
+                    continue
+                
+                filtered_voltage = voltage[valid_indices]
+                filtered_current = current[valid_indices]
+                
+                # Convert current from mA to A
+                filtered_current_amps = filtered_current * 1e-3
+                
+                # Perform linear regression
+                slope, intercept, r_value, p_value, std_err = stats.linregress(filtered_voltage, filtered_current_amps)
+                
+                if abs(slope) < 1e-10 or np.isnan(slope):
+                    continue
+                
+                resistance = 1.0 / slope  # R = 1/slope (in ohms)
+                
+                distances.append(distance)
+                resistances.append(resistance)
+                
+            except Exception as e:
+                print(f"Error processing file {file_path}: {e}")
+                continue
+        
+        return np.array(distances), np.array(resistances)
+    
+    def process_region_files_simple(self, file_paths, distances, min_voltage):
+        """Process TLM files for a region using the new simplified structure."""
+        resistances = []
+        
+        for i, file_path in enumerate(file_paths):
+            try:
+                # Load and process the file
+                voltage, current = self.load_iv_data_from_file(file_path)
+                
+                if len(voltage) == 0 or len(current) == 0:
+                    continue
+                
+                # Filter data based on minimum voltage
+                valid_indices = voltage >= min_voltage
+                if np.sum(valid_indices) < 2:
+                    continue
+                
+                filtered_voltage = voltage[valid_indices]
+                filtered_current = current[valid_indices]
+                
+                # Convert current from mA to A
+                filtered_current_amps = filtered_current * 1e-3
+                
+                # Perform linear regression
+                slope, intercept, r_value, p_value, std_err = stats.linregress(filtered_voltage, filtered_current_amps)
+                
+                if abs(slope) < 1e-10 or np.isnan(slope):
+                    continue
+                
+                resistance = 1.0 / slope  # R = 1/slope (in ohms)
+                resistances.append(resistance)
+                
+            except Exception as e:
+                print(f"Error processing file {file_path}: {e}")
+                continue
+        
+        return np.array(distances), np.array(resistances)
+    
+    def process_region_files_new(self, files, min_voltage):
+        """Process TLM files for a region using the new file structure."""
+        distances = []
+        resistances = []
+        
+        for file_info in files:
+            file_path = file_info['file_path']
+            distance = file_info['distance']
+            
+            try:
+                # Load and process the file
+                voltage, current = self.load_iv_data_from_file(file_path)
+                
+                if len(voltage) == 0 or len(current) == 0:
+                    continue
+                
+                # Filter data based on minimum voltage
+                valid_indices = voltage >= min_voltage
+                if np.sum(valid_indices) < 2:
+                    continue
+                
+                filtered_voltage = voltage[valid_indices]
+                filtered_current = current[valid_indices]
+                
+                # Convert current from mA to A
+                filtered_current_amps = filtered_current * 1e-3
+                
+                # Perform linear regression
+                slope, intercept, r_value, p_value, std_err = stats.linregress(filtered_voltage, filtered_current_amps)
+                
+                if abs(slope) < 1e-10 or np.isnan(slope):
+                    continue
+                
+                resistance = 1.0 / slope  # R = 1/slope (in ohms)
+                
+                distances.append(distance)
+                resistances.append(resistance)
+                
+            except Exception as e:
+                print(f"Error processing file {file_path}: {e}")
+                continue
+        return np.array(distances), np.array(resistances)
+    
+    def extract_distance_from_filename(self, file_path):
+        """Try to extract TLM distance from filename."""
+        filename = os.path.basename(file_path)
+        # Look for patterns like "5um", "10.5um", "5_um", etc.
+        import re
+        patterns = [
+            r'(\d+\.?\d*)\s*um',
+            r'(\d+\.?\d*)\s*μm',
+            r'(\d+\.?\d*)_um',
+            r'(\d+\.?\d*)_μm',
+            r'dist[_-]?(\d+\.?\d*)',
+            r'distance[_-]?(\d+\.?\d*)'
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, filename, re.IGNORECASE)
+            if match:
+                return float(match.group(1))
+        
+        return None
+    
+    def load_iv_data_from_file(self, file_path):
+        """Load I-V data from a file."""
+        try:
+            # Try to load as text file first
+            data = np.loadtxt(file_path, skiprows=1)  # Skip header
+            if data.shape[1] >= 2:
+                voltage = data[:, 0]
+                current = data[:, 1]
+                return voltage, current
+        except:
+            pass
+        
+        # If that fails, try CSV
+        try:
+            import pandas as pd
+            df = pd.read_csv(file_path)
+            if len(df.columns) >= 2:
+                voltage = df.iloc[:, 0].values
+                current = df.iloc[:, 1].values
+                return voltage, current
+        except:
+            pass
+        
+        return np.array([]), np.array([])
+    
+    def plot_multi_region_data(self):
+        """Plot all regions on the same graph for comparison."""
+        if not hasattr(self, 'multi_region_canvas'):
+            return
+        
+        # Clear the plot
+        self.multi_region_canvas.axes.clear()
+        
+        # Determine resistance units based on all data
+        all_resistances = []
+        for data in self.regions_data.values():
+            if 'resistances' in data and len(data['resistances']) > 0:
+                all_resistances.extend(data['resistances'])
+        
+        if not all_resistances:
+            return
+        
+        max_resistance = max(all_resistances)
+        if max_resistance < 1000:  # Less than 1kΩ, use Ω
+            resistance_unit = "Ω"
+            resistance_factor = 1.0
+        elif max_resistance < 1000000:  # Less than 1MΩ, use kΩ
+            resistance_unit = "kΩ"
+            resistance_factor = 1000.0
+        else:  # 1MΩ or more, use MΩ
+            resistance_unit = "MΩ"
+            resistance_factor = 1000000.0
+        
+        # Plot each region
+        for region_name, data in self.regions_data.items():
+            if not data['analyzed'] or 'distances' not in data or 'resistances' not in data:
+                continue
+            
+            distances = data['distances']
+            resistances = data['resistances']
+            color = data['color']
+            
+            if len(distances) == 0 or len(resistances) == 0:
+                continue
+            
+            # Convert resistances to display units
+            resistances_display = resistances / resistance_factor
+            
+            # Plot data points (no debug spam)
+            
+            # Plot data points (no label for data points)
+            scatter = self.multi_region_canvas.axes.scatter(
+                distances, resistances_display, 
+                color=color, s=100, alpha=0.8, 
+                edgecolor='white', linewidth=2, 
+                zorder=3
+            )
+            
+            # Plot fitted line if we have enough points
+            if len(distances) > 1 and 'slope' in data and 'intercept' in data:
+                x_line = np.linspace(min(distances), max(distances), 100)
+                y_line = (data['slope'] * x_line + data['intercept']) / resistance_factor
+                
+                # Calculate resistance from slope (R = 1/slope)
+                resistance_value = 1.0 / data['slope'] if data['slope'] != 0 else 0
+                resistance_display = resistance_value / resistance_factor
+                
+                # Format resistance for display
+                if resistance_display < 1:
+                    resistance_text = f"{resistance_display:.3f} {resistance_unit}"
+                elif resistance_display < 1000:
+                    resistance_text = f"{resistance_display:.2f} {resistance_unit}"
+                else:
+                    resistance_text = f"{resistance_display:.1f} {resistance_unit}"
+                
+                # Create legend label with region name and resistance
+                legend_label = f"{region_name}: R = {resistance_text}"
+                
+                self.multi_region_canvas.axes.plot(
+                    x_line, y_line, 
+                    color=color, linewidth=2, 
+                    linestyle='--', alpha=0.8, 
+                    label=legend_label, zorder=2
+                )
+        
+        # Set labels and title
+        self.multi_region_canvas.axes.set_xlabel('TLM Distance (μm)')
+        self.multi_region_canvas.axes.set_ylabel(f'Resistance ({resistance_unit})')
+        # Use editable title
+        plot_title = self.multi_plot_title_input.text() if hasattr(self, 'multi_plot_title_input') else 'Multi-Region TLM Analysis'
+        self.multi_region_canvas.axes.set_title(plot_title)
+        
+        # Apply plot style settings
+        self.update_multi_plot_style()
+        
+        # Force auto-scale to show all data points
+        self.multi_region_canvas.axes.relim()
+        self.multi_region_canvas.axes.autoscale_view()
+        
+        # Get current limits and add generous padding
+        xlim = self.multi_region_canvas.axes.get_xlim()
+        ylim = self.multi_region_canvas.axes.get_ylim()
+        
+        # Add 10% padding on both sides
+        x_padding = (xlim[1] - xlim[0]) * 0.1
+        y_padding = (ylim[1] - ylim[0]) * 0.1
+        
+        # Set new limits with padding
+        self.multi_region_canvas.axes.set_xlim(xlim[0] - x_padding, xlim[1] + x_padding)
+        self.multi_region_canvas.axes.set_ylim(ylim[0] - y_padding, ylim[1] + y_padding)
+        
+        # Force a complete redraw
+        self.multi_region_canvas.axes.figure.tight_layout()
+        
+        # Refresh the plot
+        self.multi_region_canvas.draw()
+    
+    def update_multi_plot_style(self):
+        """Apply light style to the multi-region plot matching measurement plots."""
+        if not hasattr(self, 'multi_region_canvas') or self.multi_region_canvas is None:
+            return
+        
+        # Use theme colors for consistency with measurement plots
+        self.multi_region_canvas.axes.set_facecolor(self.colors['plot_bg'])  # White background
+        self.multi_region_canvas.figure.patch.set_facecolor(self.colors['plot_fig_bg'])  # White figure background
+        
+        # Text styling to match measurement plots
+        self.multi_region_canvas.axes.tick_params(colors=self.colors['plot_text'], direction='out', width=1.5, labelsize=10)
+        self.multi_region_canvas.axes.xaxis.label.set_color(self.colors['plot_text'])
+        self.multi_region_canvas.axes.yaxis.label.set_color(self.colors['plot_text'])
+        self.multi_region_canvas.axes.title.set_color(self.colors['plot_text'])
+        
+        # Grid styling to match measurement plots
+        self.multi_region_canvas.axes.grid(True, linestyle='--', alpha=0.7, color=self.colors['plot_grid'])
+        
+        # Customize axes to match measurement plots
+        for spine in self.multi_region_canvas.axes.spines.values():
+            spine.set_color('#000000')  # Black spines
+            spine.set_linewidth(1.5)    # Slightly thicker
+        
+        # Legend styling to match measurement plots
+        legend = self.multi_region_canvas.axes.get_legend()
+        if legend:
+            legend.remove()
+        legend = self.multi_region_canvas.axes.legend(loc='upper right', frameon=True, fontsize=11)
+        legend.get_frame().set_facecolor('#ffffff')
+        legend.get_frame().set_alpha(0.9)
+        legend.get_frame().set_edgecolor('#000000')
+        
+        # Make legend text black for better visibility
+        for text in legend.get_texts():
+            text.set_color('#000000')
+        
+        # Redraw
+        self.multi_region_canvas.draw()
+    
+    def clear_multi_region_analysis(self):
+        """Clear all multi-region analysis data."""
+        reply = QMessageBox.question(
+            self, 'Clear All Data', 
+            'Are you sure you want to clear all regions and analysis data?',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                # Clear all data structures
+                self.regions_data.clear()
+                self.multi_loaded_files.clear()
+                self.file_data.clear()
+                self.current_color_index = 0
+                
+                # Update UI elements safely
+                self.update_region_list()
+                self.update_multi_files_display()
+                self.update_multi_files_table()
+                
+                # Disable buttons
+                self.analyze_multi_region_button.setEnabled(False)
+                self.export_multi_region_button.setEnabled(False)
+                
+                # Clear plot safely
+                if hasattr(self, 'multi_region_canvas') and self.multi_region_canvas is not None:
+                    self.multi_region_canvas.axes.clear()
+                    self.multi_region_canvas.draw()
+                    
+            except Exception as e:
+                print(f"Error during clear operation: {e}")
+                # Try to reset to a clean state
+                self.regions_data = {}
+                self.multi_loaded_files = []
+                self.file_data = {}
+                self.current_color_index = 0
+    
+    def export_multi_region_results(self):
+        """Export multi-region analysis results to file."""
+        if not self.regions_data:
+            QMessageBox.warning(self, "No Data", "No analysis data to export.")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Multi-Region TLM Results", "",
+            "CSV Files (*.csv);;Text Files (*.txt);;All Files (*)"
+        )
+        
+        if file_path:
+            try:
+                import pandas as pd
+                
+                # Prepare data for export
+                export_data = []
+                for region_name, data in self.regions_data.items():
+                    if data['analyzed'] and 'distances' in data and 'resistances' in data:
+                        for i, (dist, res) in enumerate(zip(data['distances'], data['resistances'])):
+                            export_data.append({
+                                'Region': region_name,
+                                'TLM_Distance_um': dist,
+                                'Resistance_Ohm': res,
+                                'Resistance_kOhm': res / 1000.0,
+                                'Slope': data.get('slope', 0),
+                                'Intercept': data.get('intercept', 0),
+                                'R_squared': data.get('r_squared', 0)
+                            })
+                
+                if export_data:
+                    df = pd.DataFrame(export_data)
+                    df.to_csv(file_path, index=False)
+                    QMessageBox.information(self, "Export Successful", f"Results exported to {file_path}")
+                else:
+                    QMessageBox.warning(self, "No Data", "No analyzed data to export.")
+                    
+            except Exception as e:
+                QMessageBox.critical(self, "Export Error", f"Error exporting data: {str(e)}") 

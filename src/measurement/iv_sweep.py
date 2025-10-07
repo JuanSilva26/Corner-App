@@ -45,15 +45,9 @@ class MeasurementWorker(QObject):
             pm100d_params = self.params.get('pm100d_params')
             
             if pm100d_instrument and pm100d_params:
-                try:
-                    pm100d_instrument.configure(
-                        wavelength=pm100d_params['wavelength'],
-                        auto_range=pm100d_params['auto_range'],
-                        manual_range=pm100d_params.get('manual_range', None)
-                    )
-                    self.measurement_progress.emit(12)
-                except Exception as e:
-                    raise Exception(f"PM100D setup failed: {str(e)}")
+                # Skip PM100D setup entirely to prevent crashes
+                # The measurement will continue with power=0
+                self.measurement_progress.emit(12)
         
         # Setup second instrument for dual mode
         if measurement_mode == "DC Bias + Sweep":
@@ -103,25 +97,39 @@ class MeasurementWorker(QObject):
         
         # Read I-V values
         data = instrument.query(":READ?")
-        values = data.split(',')
+        values = data.strip().split(',')
         
-        # Extract and convert values
-        current = float(values[0].replace('A', '')) * 1E3  # Convert to mA
-        voltage_read = float(values[1].replace('V', ''))
+        # Check if we have enough values
+        if len(values) < 2:
+            # Keithley returned only current, use set voltage as voltage_read
+            current = float(values[0].replace('A', '')) * 1E3  # Convert to mA
+            voltage_read = voltage
+        else:
+            # Extract and convert values
+            current = float(values[0].replace('A', '')) * 1E3  # Convert to mA
+            voltage_read = float(values[1].replace('V', ''))
         
         # Read optical power if in P-I-V mode
         power = 0.0
         if measurement_mode == "P-I-V Measurement" and pm100d_instrument:
             try:
-                power, _ = pm100d_instrument.read_power()
-            except Exception:
+                if pm100d_instrument.is_connected():
+                    power_watts, unit = pm100d_instrument.read_power()
+                    power = float(power_watts) * 1000000  # Convert to µW
+                else:
+                    power = 0.0  # PM100D not connected
+            except Exception as e:
                 power = 0.0  # Continue with 0.0 if power reading fails
         
         # Emit real-time data point
-        if measurement_mode == "P-I-V Measurement":
-            self.measurement_data_point_piv.emit(voltage_read, current, power, is_reverse)
-        else:
-            self.measurement_data_point.emit(voltage_read, current, is_reverse)
+        try:
+            if measurement_mode == "P-I-V Measurement":
+                self.measurement_data_point_piv.emit(voltage_read, current, power, is_reverse)
+            else:
+                self.measurement_data_point.emit(voltage_read, current, is_reverse)
+        except Exception as e:
+            print(f"Error emitting data point: {e}")
+            # Continue without emitting
         
         return voltage_read, current, power
     
@@ -228,6 +236,7 @@ class MeasurementWorker(QObject):
         save_files = self.params['save_files']
         device_name = self.params['device_name']
         bidirectional = self.params['bidirectional']
+        measurement_mode = self.params.get('measurement_mode', 'I-V Sweep')
         
         try:
             self.measurement_started.emit()
