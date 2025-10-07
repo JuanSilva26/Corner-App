@@ -726,7 +726,7 @@ class MeasurementPanel(QWidget):
         # Style the P-V plot if in P-I-V mode
         if is_piv_mode and self.ax_power is not None:
             self.ax_power.set_xlabel('Voltage (V)', fontsize=12, color=self.colors['plot_text'], fontweight='bold')
-            self.ax_power.set_ylabel('Power (mW)', fontsize=12, color=self.colors['plot_text'], fontweight='bold')
+            self.ax_power.set_ylabel('Power (µW)', fontsize=12, color=self.colors['plot_text'], fontweight='bold')
             self.ax_power.set_title('P-V Curve', fontsize=14, color=self.colors['plot_text'], fontweight='bold')
             
             # Set white background for P-V plot to match I-V plot
@@ -786,6 +786,11 @@ class MeasurementPanel(QWidget):
                 self.figure.tight_layout()
         except (ValueError, numpy.linalg.LinAlgError):
             pass
+        
+        # Force redraw of the canvas after layout changes
+        # Use a small delay to ensure layout changes are processed
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(10, self.canvas.draw)
     
     def resizeEvent(self, event):
         """Handle resize events to adjust the plot size."""
@@ -844,12 +849,8 @@ class MeasurementPanel(QWidget):
         
         # Check if P-I-V mode is selected but PM100D not connected
         if self.get_measurement_mode() == "P-I-V Measurement" and not self.pm100d_instrument:
-            QMessageBox.warning(
-                self,
-                "PM100D Required",
-                "P-I-V Measurement mode requires PM100D power meter to be connected."
-            )
-            return
+            # Allow P-I-V mode to proceed without PM100D (power will be 0)
+            pass
         
         # Validate parameters
         start_voltage = self.start_voltage_spin.value()
@@ -865,6 +866,19 @@ class MeasurementPanel(QWidget):
         
         # Clear previous plot
         self.clear_plot()
+        
+        # Ensure P-I-V plot is properly initialized
+        if self.get_measurement_mode() == "P-I-V Measurement":
+            self.customize_plot(is_piv_mode=True)
+            # Re-initialize data structure after plot customization
+            self.current_data = {
+                'voltage': [],
+                'current': [],
+                'voltage_reverse': [],
+                'current_reverse': [],
+                'power': [],
+                'power_reverse': []
+            }
             
         # Collect parameters
         params = {
@@ -968,22 +982,35 @@ class MeasurementPanel(QWidget):
     
     def update_real_time_data_piv(self, voltage, current, power, is_reverse=False):
         """Update the plot with real-time P-I-V data during measurement."""
-        if not is_reverse:
-            self.current_data['voltage'].append(voltage)
-            self.current_data['current'].append(current)
-            self.current_data['power'].append(power)
-            self.line_forward.set_data(self.current_data['voltage'], self.current_data['current'])
-            # Update power plot if available
-            if hasattr(self, 'line_power_forward'):
-                self.line_power_forward.set_data(self.current_data['voltage'], self.current_data['power'])
-        else:
-            self.current_data['voltage_reverse'].append(voltage)
-            self.current_data['current_reverse'].append(current)
-            self.current_data['power_reverse'].append(power)
-            self.line_reverse.set_data(self.current_data['voltage_reverse'], self.current_data['current_reverse'])
-            # Update power plot if available
-            if hasattr(self, 'line_power_reverse'):
-                self.line_power_reverse.set_data(self.current_data['voltage_reverse'], self.current_data['power_reverse'])
+        # Ensure current_data has all required keys for P-I-V mode
+        if not hasattr(self, 'current_data'):
+            self.current_data = {}
+        
+        required_keys = ['voltage', 'current', 'voltage_reverse', 'current_reverse', 'power', 'power_reverse']
+        for key in required_keys:
+            if key not in self.current_data:
+                self.current_data[key] = []
+        
+        try:
+            if not is_reverse:
+                self.current_data['voltage'].append(voltage)
+                self.current_data['current'].append(current)
+                self.current_data['power'].append(power)
+                self.line_forward.set_data(self.current_data['voltage'], self.current_data['current'])
+                # Update power plot if available
+                if hasattr(self, 'line_power_forward'):
+                    self.line_power_forward.set_data(self.current_data['voltage'], self.current_data['power'])
+            else:
+                self.current_data['voltage_reverse'].append(voltage)
+                self.current_data['current_reverse'].append(current)
+                self.current_data['power_reverse'].append(power)
+                self.line_reverse.set_data(self.current_data['voltage_reverse'], self.current_data['current_reverse'])
+                # Update power plot if available
+                if hasattr(self, 'line_power_reverse'):
+                    self.line_power_reverse.set_data(self.current_data['voltage_reverse'], self.current_data['power_reverse'])
+        except Exception as e:
+            # Continue without updating plots
+            pass
         
         # Update axes limits with better padding for I-V plot
         all_voltages = self.current_data['voltage']
@@ -1018,6 +1045,7 @@ class MeasurementPanel(QWidget):
     def update_plot(self, data):
         """Update the plot with final data after measurement is completed."""
         bidirectional = 'voltage_reverse' in data and 'current_reverse' in data
+        is_piv = 'power' in data or 'power_forward' in data
         
         # Store the data
         if bidirectional:
@@ -1025,25 +1053,41 @@ class MeasurementPanel(QWidget):
                 'voltage': data['voltage_forward'],
                 'current': data['current_forward'],
                 'voltage_reverse': data['voltage_reverse'],
-                'current_reverse': data['current_reverse']
+                'current_reverse': data['current_reverse'],
+                'power': data.get('power_forward', []),
+                'power_reverse': data.get('power_reverse', [])
             }
             
             # Update line data
             self.line_forward.set_data(self.current_data['voltage'], self.current_data['current'])
             self.line_reverse.set_data(self.current_data['voltage_reverse'], self.current_data['current_reverse'])
+            
+            # Update P-V plot lines if they exist
+            if is_piv and hasattr(self, 'line_power_forward'):
+                self.line_power_forward.set_data(self.current_data['voltage'], self.current_data['power'])
+            if is_piv and hasattr(self, 'line_power_reverse'):
+                self.line_power_reverse.set_data(self.current_data['voltage_reverse'], self.current_data['power_reverse'])
         else:
             self.current_data = {
                 'voltage': data['voltage'],
                 'current': data['current'],
                 'voltage_reverse': [],
-                'current_reverse': []
+                'current_reverse': [],
+                'power': data.get('power', []),
+                'power_reverse': []
             }
             
             # Update line data
             self.line_forward.set_data(self.current_data['voltage'], self.current_data['current'])
             self.line_reverse.set_data([], [])
+            
+            # Update P-V plot lines if they exist
+            if is_piv and hasattr(self, 'line_power_forward'):
+                self.line_power_forward.set_data(self.current_data['voltage'], self.current_data['power'])
+            if is_piv and hasattr(self, 'line_power_reverse'):
+                self.line_power_reverse.set_data([], [])
         
-        # Adjust plot limits
+        # Adjust plot limits for I-V plot
         all_voltages = self.current_data['voltage']
         all_currents = self.current_data['current']
         
@@ -1058,6 +1102,19 @@ class MeasurementPanel(QWidget):
             self.ax.set_xlim(min(all_voltages) - margin_x, max(all_voltages) + margin_x)
             self.ax.set_ylim(min(all_currents) - margin_y, max(all_currents) + margin_y)
         
+        # Adjust plot limits for P-V plot if it exists
+        if is_piv and hasattr(self, 'ax_power') and self.ax_power is not None:
+            all_powers = self.current_data['power']
+            if bidirectional and len(self.current_data['power_reverse']) > 0:
+                all_powers = np.concatenate((all_powers, self.current_data['power_reverse']))
+            
+            if len(all_voltages) > 0 and len(all_powers) > 0:
+                margin_x = 0.1 * (max(all_voltages) - min(all_voltages)) if len(all_voltages) > 1 else 0.1
+                margin_y = 0.1 * (max(all_powers) - min(all_powers)) if len(all_powers) > 1 else 0.1
+                
+                self.ax_power.set_xlim(min(all_voltages) - margin_x, max(all_voltages) + margin_x)
+                self.ax_power.set_ylim(min(all_powers) - margin_y, max(all_powers) + margin_y)
+        
         # Redraw the canvas
         self.canvas.draw()
         
@@ -1070,14 +1127,27 @@ class MeasurementPanel(QWidget):
             'voltage': [],
             'current': [],
             'voltage_reverse': [],
-            'current_reverse': []
+            'current_reverse': [],
+            'power': [],
+            'power_reverse': []
         }
         
         self.line_forward.set_data([], [])
         self.line_reverse.set_data([], [])
         
+        # Clear P-V plot lines if they exist
+        if hasattr(self, 'line_power_forward'):
+            self.line_power_forward.set_data([], [])
+        if hasattr(self, 'line_power_reverse'):
+            self.line_power_reverse.set_data([], [])
+        
         self.ax.relim()
         self.ax.autoscale_view()
+        
+        # Reset P-V plot if it exists
+        if hasattr(self, 'ax_power') and self.ax_power is not None:
+            self.ax_power.relim()
+            self.ax_power.autoscale_view()
         
         self.canvas.draw()
     
