@@ -186,6 +186,3 @@ For questions, issues, or feature requests, please:
 - **Matplotlib** - Scientific plotting capabilities
 - **SciPy** - Scientific computing tools
 
----
-
-**Built with ❤️ for the semiconductor research community**
