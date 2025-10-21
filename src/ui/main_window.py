@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QTabWidget, QLabel, QStatusBar, QSplitter
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from .theme import AppTheme
 
 class MainWindow(QMainWindow):
@@ -83,6 +83,17 @@ class MainWindow(QMainWindow):
         """)
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
+    
+    def showEvent(self, event):
+        """Handle window show event to refresh table scrollbars."""
+        super().showEvent(event)
+        # Schedule scrollbar refresh after window is shown
+        QTimer.singleShot(200, self.refresh_table_scrollbars)
+    
+    def refresh_table_scrollbars(self):
+        """Refresh scrollbars in all analysis panels."""
+        # This will be called by the analysis panel when needed
+        pass
     
     def apply_stylesheet(self):
         """Apply dark mode stylesheet to the entire application."""

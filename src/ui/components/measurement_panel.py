@@ -819,10 +819,13 @@ class MeasurementPanel(QWidget):
     def on_browse_clicked(self):
         """Handle browse button click to select save directory."""
         # Get the directory for saving files
+        # Use non-native dialog to avoid macOS NSOpenPanel crashes
+        options = QFileDialog.Option.DontUseNativeDialog
         directory = QFileDialog.getExistingDirectory(
             self,
             "Select Directory",
-            self.device_name_edit.text()
+            self.device_name_edit.text(),
+            options=options
         )
         
         if directory:
@@ -1324,11 +1327,13 @@ class MeasurementPanel(QWidget):
             folder_name = os.path.basename(device_name)
             base_path = os.path.join(device_name, f'I-V Curve - {folder_name} - [{timestamp}]')
             
-            # Create a new figure for saving
+            # Create a new figure for saving with proper backend
+            import matplotlib
+            matplotlib.use('Agg')  # Use non-interactive backend
             import matplotlib.pyplot as plt
             from matplotlib.figure import Figure
             
-            fig = Figure(figsize=(8, 6), dpi=100)
+            fig = Figure(figsize=(10, 6), dpi=100)
             ax = fig.add_subplot(111)
             
             # Apply dark theme styling (same as visualization panel)
@@ -1356,41 +1361,179 @@ class MeasurementPanel(QWidget):
             ax.title.set_fontsize(14)
             ax.title.set_fontweight('bold')
             
-            # Set plot labels
-            ax.set_xlabel('Voltage (V)')
-            ax.set_ylabel('Current (mA)')
-            ax.set_title('I-V Curve')
+            # Check if this is P-I-V data
+            is_piv = 'power' in data or 'power_forward' in data
             
-            # Grid styling
-            ax.grid(True, linestyle='--', alpha=0.3, color='#34495e')
-            
-            # Plot the data
+            # Validate data before plotting
             if bidirectional:
-                # Plot forward sweep
-                ax.plot(data['voltage_forward'], data['current_forward'], 
-                       'b+-', label='Upward', linewidth=2, markersize=4)
-                # Plot reverse sweep
-                ax.plot(data['voltage_reverse'], data['current_reverse'], 
-                       'r+-', label='Downward', linewidth=2, markersize=4)
+                if not all(key in data for key in ['voltage_forward', 'current_forward', 'voltage_reverse', 'current_reverse']):
+                    print("Error: Missing required data for bidirectional plot")
+                    return
+                if is_piv and not all(key in data for key in ['power_forward', 'power_reverse']):
+                    print("Error: Missing power data for PIV plot")
+                    return
             else:
-                # Plot single sweep
-                ax.plot(data['voltage'], data['current'], 
-                       'b+-', label='Upward', linewidth=2, markersize=4)
+                if not all(key in data for key in ['voltage', 'current']):
+                    print("Error: Missing required data for single sweep plot")
+                    return
+                if is_piv and 'power' not in data:
+                    print("Error: Missing power data for PIV plot")
+                    return
             
-            # Create legend with enhanced styling
-            legend = ax.legend(loc='upper right', fontsize=11, frameon=True, 
-                             fancybox=True, shadow=True, framealpha=0.95)
-            legend.get_frame().set_facecolor('#2c3e50')
-            legend.get_frame().set_edgecolor('#34495e')
-            legend.get_frame().set_linewidth(1.0)
-            
-            # Make legend text white and bold
-            for text in legend.get_texts():
-                text.set_color('#ecf0f1')
-                text.set_fontweight('bold')
+            if is_piv:
+                # Create subplots for P-I-V mode with better spacing
+                fig.subplots_adjust(left=0.12, right=0.95, bottom=0.15, top=0.9, wspace=0.3)
+                ax_iv = fig.add_subplot(121)
+                ax_power = fig.add_subplot(122)
+                
+                
+                # I-V plot
+                ax_iv.set_xlabel('Voltage (V)')
+                ax_iv.set_ylabel('Current (mA)')
+                ax_iv.set_title('I-V Curve')
+                ax_iv.grid(True, linestyle='--', alpha=0.3, color='#34495e')
+                
+                # P-V plot
+                ax_power.set_xlabel('Voltage (V)')
+                ax_power.set_ylabel('Power (µW)')
+                ax_power.set_title('P-V Curve')
+                ax_power.grid(True, linestyle='--', alpha=0.3, color='#34495e')
+                
+                # Plot I-V data
+                if bidirectional:
+                    # Plot forward sweep
+                    ax_iv.plot(data['voltage_forward'], data['current_forward'], 
+                              'b+-', label='Upward', linewidth=2, markersize=4)
+                    # Plot reverse sweep
+                    ax_iv.plot(data['voltage_reverse'], data['current_reverse'], 
+                              'r+-', label='Downward', linewidth=2, markersize=4)
+                    
+                    # Plot P-V data (use same voltage data as I-V)
+                    ax_power.plot(data['voltage_forward'], data['power_forward'], 
+                                 'b+-', label='Upward', linewidth=2, markersize=4)
+                    ax_power.plot(data['voltage_reverse'], data['power_reverse'], 
+                                 'r+-', label='Downward', linewidth=2, markersize=4)
+                else:
+                    # Plot single sweep
+                    ax_iv.plot(data['voltage'], data['current'], 
+                              'b+-', label='Upward', linewidth=2, markersize=4)
+                    ax_power.plot(data['voltage'], data['power'], 
+                                 'b+-', label='Upward', linewidth=2, markersize=4)
+                
+                # Create legends for both plots
+                legend_iv = ax_iv.legend(loc='upper right', fontsize=11, frameon=True, 
+                                       fancybox=True, shadow=True, framealpha=0.95)
+                legend_iv.get_frame().set_facecolor('#2c3e50')
+                legend_iv.get_frame().set_edgecolor('#34495e')
+                legend_iv.get_frame().set_linewidth(1.0)
+                
+                legend_power = ax_power.legend(loc='upper right', fontsize=11, frameon=True, 
+                                             fancybox=True, shadow=True, framealpha=0.95)
+                legend_power.get_frame().set_facecolor('#2c3e50')
+                legend_power.get_frame().set_edgecolor('#34495e')
+                legend_power.get_frame().set_linewidth(1.0)
+                
+                # Make legend text white and bold for both plots
+                for text in legend_iv.get_texts():
+                    text.set_color('#ecf0f1')
+                    text.set_fontweight('bold')
+                for text in legend_power.get_texts():
+                    text.set_color('#ecf0f1')
+                    text.set_fontweight('bold')
+                
+                # Apply styling to both plots
+                for ax_plot in [ax_iv, ax_power]:
+                    ax_plot.tick_params(colors='#ecf0f1', labelsize=9, length=4, width=1, pad=8)
+                    ax_plot.spines['bottom'].set_color('#34495e')
+                    ax_plot.spines['top'].set_color('#34495e')
+                    ax_plot.spines['left'].set_color('#34495e')
+                    ax_plot.spines['right'].set_color('#34495e')
+                    ax_plot.xaxis.label.set_color('#ecf0f1')
+                    ax_plot.xaxis.label.set_fontsize(11)
+                    ax_plot.xaxis.label.set_fontweight('bold')
+                    ax_plot.yaxis.label.set_color('#ecf0f1')
+                    ax_plot.yaxis.label.set_fontsize(11)
+                    ax_plot.yaxis.label.set_fontweight('bold')
+                    ax_plot.title.set_color('#ecf0f1')
+                    ax_plot.title.set_fontsize(13)
+                    ax_plot.title.set_fontweight('bold')
+                    ax_plot.set_facecolor('#1e272e')
+                    
+                    # Fix tick formatting to prevent overlap
+                    ax_plot.ticklabel_format(style='plain', axis='both')
+                    
+                    # Set better tick spacing
+                    from matplotlib.ticker import MaxNLocator
+                    ax_plot.xaxis.set_major_locator(MaxNLocator(nbins=6, prune='both'))
+                    ax_plot.yaxis.set_major_locator(MaxNLocator(nbins=6, prune='both'))
+                
+                # Ensure both plots have the same voltage range and proper scaling
+                if bidirectional:
+                    all_voltages = list(data['voltage_forward']) + list(data['voltage_reverse'])
+                else:
+                    all_voltages = list(data['voltage'])
+                
+                if all_voltages:
+                    v_min, v_max = min(all_voltages), max(all_voltages)
+                    v_margin = max(0.01, (v_max - v_min) * 0.05)  # At least 0.01V margin
+                    
+                    # Set identical voltage ranges for both plots
+                    ax_iv.set_xlim(v_min - v_margin, v_max + v_margin)
+                    ax_power.set_xlim(v_min - v_margin, v_max + v_margin)
+                    
+                    # Auto-scale y-axes appropriately
+                    ax_iv.relim()
+                    ax_iv.autoscale_view()
+                    ax_power.relim()
+                    ax_power.autoscale_view()
+            else:
+                # Regular I-V plot
+                ax.set_xlabel('Voltage (V)')
+                ax.set_ylabel('Current (mA)')
+                ax.set_title('I-V Curve')
+                
+                # Grid styling
+                ax.grid(True, linestyle='--', alpha=0.3, color='#34495e')
+                
+                # Plot the data
+                if bidirectional:
+                    # Plot forward sweep
+                    ax.plot(data['voltage_forward'], data['current_forward'], 
+                           'b+-', label='Upward', linewidth=2, markersize=4)
+                    # Plot reverse sweep
+                    ax.plot(data['voltage_reverse'], data['current_reverse'], 
+                           'r+-', label='Downward', linewidth=2, markersize=4)
+                else:
+                    # Plot single sweep
+                    ax.plot(data['voltage'], data['current'], 
+                           'b+-', label='Upward', linewidth=2, markersize=4)
+                
+                # Create legend with enhanced styling for regular I-V plot
+                legend = ax.legend(loc='upper right', fontsize=11, frameon=True, 
+                                 fancybox=True, shadow=True, framealpha=0.95)
+                legend.get_frame().set_facecolor('#2c3e50')
+                legend.get_frame().set_edgecolor('#34495e')
+                legend.get_frame().set_linewidth(1.0)
+                
+                # Make legend text white and bold
+                for text in legend.get_texts():
+                    text.set_color('#ecf0f1')
+                    text.set_fontweight('bold')
+                
+                # Fix tick formatting for regular I-V plot
+                ax.ticklabel_format(style='plain', axis='both')
+                from matplotlib.ticker import MaxNLocator
+                ax.xaxis.set_major_locator(MaxNLocator(nbins=6, prune='both'))
+                ax.yaxis.set_major_locator(MaxNLocator(nbins=6, prune='both'))
             
             # Apply tight layout
             fig.tight_layout()
+            
+            # Force the figure to render completely before saving
+            fig.canvas.draw()
+            
+            # Small delay to ensure rendering is complete
+            time.sleep(0.1)
             
             # Save the plot
             plot_path = base_path + '.png'

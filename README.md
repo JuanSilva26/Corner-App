@@ -1,11 +1,11 @@
-# 🔬 Measurement App - Advanced I-V & P-I-V Analysis
+# 🔬 Measurement App - I-V & P-I-V Analysis
 
-A professional PyQt6-based application for electrical characterization of semiconductor devices, featuring advanced I-V measurements, P-I-V analysis, and comprehensive data analysis tools.
+PyQt6-based application for electrical characterization of semiconductor devices, featuring I-V measurements, P-I-V analysis, and data analysis tools.
 
 ## ✨ Features
 
 ### 🔌 **Instrument Control**
-- **Keithley 2400/2450 SourceMeter** integration via PyVISA
+- **Keithley 2400 SourceMeter** integration via PyVISA
 - **Thorlabs PM100D Power Meter** support for optical power measurements
 - **Real-time device detection** and connection management
 - **Multi-device support** with automatic resource discovery
@@ -111,11 +111,6 @@ pyThorlabsPM100x>=1.0.0
 - **Error Handling** - Comprehensive error detection and reporting
 - **Real-time Updates** - Live parameter adjustment and plotting
 
-### **Professional Output**
-- **Publication-ready plots** - High-quality figure generation
-- **Comprehensive data export** - Multiple format support
-- **Statistical metrics** - R² values, confidence intervals
-- **Customizable styling** - Professional appearance
 
 ## 📁 Project Structure
 
@@ -139,7 +134,6 @@ measurement-app/
 ## 🔬 Supported Instruments
 
 - **Keithley 2400 SourceMeter** - Primary I-V measurement device
-- **Keithley 2450 SourceMeter** - Advanced source-measure unit
 - **Thorlabs PM100D** - Optical power meter for P-I-V analysis
 - **Generic VISA devices** - Any SCPI-compatible instrument
 
@@ -186,6 +180,3 @@ For questions, issues, or feature requests, please:
 - **Matplotlib** - Scientific plotting capabilities
 - **SciPy** - Scientific computing tools
 
----
-
-**Built with ❤️ for the semiconductor research community**

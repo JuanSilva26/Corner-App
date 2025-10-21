@@ -10,7 +10,6 @@ import scipy.constants
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from matplotlib.widgets import Cursor
 import matplotlib.patches as patches
 import pandas as pd
 
@@ -21,7 +20,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QSplitter,
     QSizePolicy, QDoubleSpinBox, QCheckBox, QInputDialog, QComboBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QLocale
+from PyQt6.QtCore import Qt, pyqtSignal, QLocale, QTimer
 from ..theme import AppTheme
 
 
@@ -102,8 +101,6 @@ class TLMCanvas(FigureCanvas):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
         
-        # Add interactive cursor
-        self.cursor = Cursor(self.axes, useblit=True, color='red', linewidth=1)
         
         # Connect mouse events for interactivity
         self.mpl_connect('button_press_event', self.on_click)
@@ -229,21 +226,11 @@ class TLMCanvas(FigureCanvas):
     
     def on_click(self, event):
         """Handle mouse click events for plot interaction."""
-        if event.inaxes != self.axes:
-            return
-        
-        if event.button == 1:  # Left click
-            # Add annotation at clicked point
-            self.add_annotation(event.xdata, event.ydata)
-        elif event.button == 3:  # Right click
-            # Remove nearest annotation
-            self.remove_nearest_annotation(event.xdata, event.ydata)
+        pass
     
     def on_mouse_move(self, event):
         """Handle mouse movement for cursor updates."""
-        if event.inaxes == self.axes:
-            # Update cursor position
-            self.cursor.onmove(event)
+        pass
     
     def on_scroll(self, event):
         """Handle scroll events for zooming."""
@@ -365,10 +352,45 @@ class AnalysisPanel(QWidget):
         super().__init__(parent)
         
         # Get centralized theme colors and styles
-        self.colors = AppTheme.get_colors()
-        self.HEADER_STYLE = AppTheme.header_style()
-        self.GROUP_STYLE = AppTheme.group_box_style()
-        self.BUTTON_STYLE = AppTheme.button_style()
+        try:
+            self.colors = AppTheme.get_colors()
+        except Exception as e:
+            print(f"Error loading theme: {e}")
+            # Fallback colors
+            self.colors = {
+                'primary': '#2980b9',
+                'secondary': '#27ae60',
+                'danger': '#c0392b',
+                'warning': '#d35400',
+                'dark': '#1e272e',
+                'darker': '#151c21',
+                'light': '#485460',
+                'lighter': '#808e9b',
+                'text': '#ecf0f1',
+                'text_secondary': '#bdc3c7',
+                'border': '#34495e',
+                'button': '#34495e',
+                'input': '#2c3e50',
+                'success_bg': '#274d36',
+                'error_bg': '#532b2b',
+                'warning_bg': '#553b21',
+                'plot_bg': '#ffffff',
+                'plot_fig_bg': '#ffffff',
+                'plot_grid': '#cccccc',
+                'plot_forward': '#2980b9',
+                'plot_reverse': '#c0392b',
+                'plot_text': '#333333',
+            }
+        try:
+            self.HEADER_STYLE = AppTheme.header_style()
+            self.GROUP_STYLE = AppTheme.group_box_style()
+            self.BUTTON_STYLE = AppTheme.button_style()
+        except Exception as e:
+            print(f"Error loading theme styles: {e}")
+            # Fallback styles
+            self.HEADER_STYLE = "font-size: 16px; font-weight: bold; color: #ecf0f1;"
+            self.GROUP_STYLE = "QGroupBox { font-weight: bold; border: 1px solid #34495e; border-radius: 6px; margin-top: 1.5ex; padding-top: 10px; padding-bottom: 8px; background-color: #1e272e; color: #ecf0f1; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top center; padding: 0 8px; color: #ecf0f1; }"
+            self.BUTTON_STYLE = "QPushButton { background-color: #34495e; color: #ecf0f1; border-radius: 5px; padding: 8px 15px; font-weight: bold; border: none; } QPushButton:hover { background-color: #2980b9; } QPushButton:pressed { background-color: #1c6ea4; } QPushButton:disabled { background-color: #485460; color: #bdc3c7; }"
         self.PRIMARY_BUTTON_STYLE = f"""
             QPushButton {{ 
                 background-color: {self.colors['primary']}; 
@@ -449,7 +471,6 @@ class AnalysisPanel(QWidget):
         self.create_analysis_tools_selection()
         
         # Create TLM analysis group (initially visible)
-        self.create_tlm_group()
         
         # Create IV Fit analysis group (initially hidden)
         self.create_iv_fit_group()
@@ -465,15 +486,9 @@ class AnalysisPanel(QWidget):
         self.create_plot_section()
         
         # Show TLM analysis by default
-        self.show_tlm_analysis()
+        self.show_multi_region_tlm()
         
-        # Connect signals
-        self.load_tlm_button.clicked.connect(self.load_tlm_files)
-        self.add_files_button.clicked.connect(self.add_tlm_files)
-        self.analyze_button.clicked.connect(self.perform_tlm_analysis)
-        self.clear_button.clicked.connect(self.clear_analysis)
-        # Connect min voltage change to trigger new analysis if analyze button is enabled
-        self.min_voltage_input.valueChanged.connect(self.min_voltage_changed)
+        # Connect signals (handled by multi-region TLM interface)
     
     def create_analysis_tools_selection(self):
         """Create analysis tools selection buttons at the top."""
@@ -502,7 +517,7 @@ class AnalysisPanel(QWidget):
                 border: 2px solid #1c6ea4;
             }}
         """)
-        self.tlm_button.clicked.connect(self.show_tlm_analysis)
+        self.tlm_button.clicked.connect(self.show_multi_region_tlm)
         self.tlm_button.setToolTip("Transmission Line Method analysis for contact and sheet resistance")
         buttons_layout.addWidget(self.tlm_button)
         
@@ -531,30 +546,6 @@ class AnalysisPanel(QWidget):
         self.iv_fit_button.setToolTip("I-V characteristic fitting to Schulman model")
         buttons_layout.addWidget(self.iv_fit_button)
         
-        # Multi-Region TLM Analysis button
-        self.multi_region_tlm_button = QPushButton("🌐 Multi-Region TLM")
-        self.multi_region_tlm_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self.colors['light']};
-                color: {self.colors['text']};
-                border-radius: 6px;
-                padding: 10px 20px;
-                font-weight: bold;
-                font-size: 13px;
-                border: 2px solid {self.colors['border']};
-            }}
-            QPushButton:hover {{
-                background-color: {self.colors['darker']};
-                border: 2px solid {self.colors['primary']};
-            }}
-            QPushButton:pressed {{
-                background-color: {self.colors['primary']};
-                border: 2px solid {self.colors['primary']};
-            }}
-        """)
-        self.multi_region_tlm_button.clicked.connect(self.show_multi_region_tlm)
-        self.multi_region_tlm_button.setToolTip("Compare TLM analysis across multiple regions")
-        buttons_layout.addWidget(self.multi_region_tlm_button)
         
         # More Tools button (placeholder)
         self.more_tools_button = QPushButton("🔧 More Tools")
@@ -594,68 +585,6 @@ class AnalysisPanel(QWidget):
         separator.setStyleSheet(f"background-color: {self.colors['border']}; border-radius: 2px;")
         self.layout.addWidget(separator)
     
-    def show_tlm_analysis(self):
-        """Show TLM analysis interface when TLM button is clicked."""
-        # Show TLM analysis components
-        self.tlm_group.show()
-        self.results_section.show()
-        self.plot_section.show()
-        
-        # Hide other analysis components
-        if hasattr(self, 'iv_fit_group'):
-            self.iv_fit_group.hide()
-            self.iv_fit_plot_section.hide()
-        
-        if hasattr(self, 'multi_region_tlm_group'):
-            self.multi_region_tlm_group.hide()
-            self.multi_region_plot_section.hide()
-        
-        # Hide placeholders
-        self.table_placeholder.hide()
-        self.plot_placeholder.hide()
-        
-        # Update button states
-        self.tlm_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self.colors['primary']};
-                color: {self.colors['text']};
-                border-radius: 6px;
-                padding: 10px 20px;
-                font-weight: bold;
-                font-size: 13px;
-                border: 2px solid {self.colors['primary']};
-            }}
-        """)
-        self.iv_fit_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self.colors['lighter']};
-                color: {self.colors['text']};
-                border-radius: 6px;
-                padding: 10px 20px;
-                font-weight: bold;
-                font-size: 13px;
-                border: 2px solid {self.colors['lighter']};
-            }}
-            QPushButton:hover {{
-                background-color: {self.colors['light']};
-                border: 2px solid {self.colors['light']};
-            }}
-        """)
-        self.multi_region_tlm_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self.colors['lighter']};
-                color: {self.colors['text']};
-                border-radius: 6px;
-                padding: 10px 20px;
-                font-weight: bold;
-                font-size: 13px;
-                border: 2px solid {self.colors['lighter']};
-            }}
-            QPushButton:hover {{
-                background-color: {self.colors['light']};
-                border: 2px solid {self.colors['light']};
-            }}
-        """)
     
     def show_iv_fit_analysis(self):
         """Show IV Fit analysis interface when IV Fit button is clicked."""
@@ -664,10 +593,6 @@ class AnalysisPanel(QWidget):
         self.iv_fit_plot_section.show()
         
         # Hide other analysis components
-        self.tlm_group.hide()
-        self.results_section.hide()
-        self.plot_section.hide()
-        
         if hasattr(self, 'multi_region_tlm_group'):
             self.multi_region_tlm_group.hide()
             self.multi_region_plot_section.hide()
@@ -703,7 +628,7 @@ class AnalysisPanel(QWidget):
                 border: 2px solid {self.colors['light']};
             }}
         """)
-        self.multi_region_tlm_button.setStyleSheet(f"""
+        self.analyze_multi_region_button.setStyleSheet(f"""
             QPushButton {{
                 background-color: {self.colors['lighter']};
                 color: {self.colors['text']};
@@ -720,15 +645,12 @@ class AnalysisPanel(QWidget):
         """)
     
     def show_multi_region_tlm(self):
-        """Show Multi-Region TLM analysis interface."""
-        # Show Multi-Region TLM components
+        """Show TLM analysis interface."""
+        # Show TLM analysis components
         self.multi_region_tlm_group.show()
         self.multi_region_plot_section.show()
         
         # Hide other analysis components
-        self.tlm_group.hide()
-        self.results_section.hide()
-        self.plot_section.hide()
         self.iv_fit_group.hide()
         self.iv_fit_plot_section.hide()
         
@@ -737,7 +659,7 @@ class AnalysisPanel(QWidget):
         self.plot_placeholder.hide()
         
         # Update button states
-        self.multi_region_tlm_button.setStyleSheet(f"""
+        self.tlm_button.setStyleSheet(f"""
             QPushButton {{
                 background-color: {self.colors['primary']};
                 color: {self.colors['text']};
@@ -746,21 +668,6 @@ class AnalysisPanel(QWidget):
                 font-weight: bold;
                 font-size: 13px;
                 border: 2px solid {self.colors['primary']};
-            }}
-        """)
-        self.tlm_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self.colors['lighter']};
-                color: {self.colors['text']};
-                border-radius: 6px;
-                padding: 10px 20px;
-                font-weight: bold;
-                font-size: 13px;
-                border: 2px solid {self.colors['lighter']};
-            }}
-            QPushButton:hover {{
-                background-color: {self.colors['light']};
-                border: 2px solid {self.colors['light']};
             }}
         """)
         self.iv_fit_button.setStyleSheet(f"""
@@ -781,11 +688,6 @@ class AnalysisPanel(QWidget):
     
     def back_to_tools(self):
         """Return to analysis tools selection."""
-        # Hide TLM analysis components
-        self.tlm_group.hide()
-        self.results_section.hide()
-        self.plot_section.hide()
-        
         # Hide IV Fit analysis components
         self.iv_fit_group.hide()
         self.iv_fit_plot_section.hide()
@@ -1013,6 +915,7 @@ class AnalysisPanel(QWidget):
     
     def load_tlm_files(self):
         """Open file dialog to load multiple TLM measurement files. This clears any existing files."""
+        options = QFileDialog.Option.DontUseNativeDialog
         file_paths, _ = QFileDialog.getOpenFileNames(
             self, "Select TLM Measurement Files", "", 
             "All Supported Files (*.txt *.csv *.xlsx *.xls *.dat);;"
@@ -1020,7 +923,8 @@ class AnalysisPanel(QWidget):
             "CSV Files (*.csv);;"
             "Excel Files (*.xlsx *.xls);;"
             "Data Files (*.dat);;"
-            "All Files (*)"
+            "All Files (*)",
+            options=options
         )
         
         if not file_paths:
@@ -1040,9 +944,11 @@ class AnalysisPanel(QWidget):
         
     def add_tlm_files(self):
         """Open file dialog to add more TLM measurement files to the existing list."""
+        options = QFileDialog.Option.DontUseNativeDialog
         file_paths, _ = QFileDialog.getOpenFileNames(
             self, "Add More TLM Measurement Files", "", 
-            "Data Files (*.txt *.csv);;All Files (*)"
+            "Data Files (*.txt *.csv);;All Files (*)",
+            options=options
         )
         
         if not file_paths:
@@ -1542,7 +1448,7 @@ class AnalysisPanel(QWidget):
         left_column.setSpacing(10)
         
         # Title and description
-        title_label = QLabel("Multi-Region TLM Analysis")
+        title_label = QLabel("TLM Analysis")
         title_label.setStyleSheet(f"""
             font-size: 18px;
             font-weight: bold;
@@ -1593,9 +1499,11 @@ class AnalysisPanel(QWidget):
         settings_layout.addRow("Min. Voltage for Fitting:", self.multi_min_voltage_input)
         
         # Plot title setting
-        self.multi_plot_title_input = QLineEdit("Multi-Region TLM Analysis")
+        self.multi_plot_title_input = QLineEdit("TLM Analysis")
         self.multi_plot_title_input.setStyleSheet(self.INPUT_STYLE)
         settings_layout.addRow("Plot Title:", self.multi_plot_title_input)
+        
+        # File selection is now automatic - always use most recent
         
         # Plot will always use light style - no customization needed
         
@@ -1606,11 +1514,49 @@ class AnalysisPanel(QWidget):
         files_group.setStyleSheet(self.GROUP_STYLE)
         files_layout = QVBoxLayout(files_group)
         
-        # Load files button (single button for continuous loading)
+        # Combined load files button with dropdown menu
         self.load_files_button = QPushButton("📁 Load TLM Files")
         self.load_files_button.setStyleSheet(self.PRIMARY_BUTTON_STYLE)
-        self.load_files_button.clicked.connect(self.load_tlm_files_continuous)
+        self.load_files_button.clicked.connect(self.show_load_files_menu)
         files_layout.addWidget(self.load_files_button)
+        
+        # Multi-assignment controls
+        multi_assign_layout = QHBoxLayout()
+        multi_assign_layout.addWidget(QLabel("Assign selected files to:"))
+        
+        self.multi_region_combo = QComboBox()
+        self.multi_region_combo.addItem("Not assigned")
+        self.multi_region_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {self.colors['input']};
+                color: {self.colors['text']};
+                border: 1px solid {self.colors['border']};
+                border-radius: 4px;
+                padding: 4px 8px;
+                min-width: 120px;
+            }}
+        """)
+        multi_assign_layout.addWidget(self.multi_region_combo)
+        
+        self.assign_selected_btn = QPushButton("Assign Selected")
+        self.assign_selected_btn.clicked.connect(self.assign_selected_files)
+        self.assign_selected_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {self.colors.get('button_hover', '#4A4A4A')};
+                color: {self.colors['text']};
+                border: 1px solid {self.colors['border']};
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {self.colors.get('button_pressed', '#3A3A3A')};
+            }}
+        """)
+        multi_assign_layout.addWidget(self.assign_selected_btn)
+        
+        multi_assign_layout.addStretch()
+        files_layout.addLayout(multi_assign_layout)
         
         # File list display
         self.multi_files_label = QLabel("No files loaded")
@@ -1618,25 +1564,34 @@ class AnalysisPanel(QWidget):
         self.multi_files_label.setWordWrap(True)
         files_layout.addWidget(self.multi_files_label)
         
-        # Files table with better sizing and scroll
+        # Files table with proper scrolling
         self.multi_files_table = QTableWidget(0, 3)
         self.multi_files_table.setHorizontalHeaderLabels(['File', 'Distance (μm)', 'Region'])
         self.multi_files_table.setStyleSheet(self.TABLE_STYLE)
         self.multi_files_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.multi_files_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.multi_files_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.multi_files_table.setMinimumHeight(300)  # Smaller minimum height
-        self.multi_files_table.setMaximumHeight(400)  # Smaller maximum height to force scrolling
-        # Enable scrolling - force scroll bars to always be visible
+        
+        # Set height to accommodate more rows and force scrolling
+        self.multi_files_table.setFixedHeight(250)
+        
+        # Enable scrolling - force scrollbars to be visible
         self.multi_files_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.multi_files_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        # Set a fixed row height to ensure all rows are visible
+        
+        # Ensure proper scrollbar behavior after window operations
+        self.multi_files_table.setSizeAdjustPolicy(QTableWidget.SizeAdjustPolicy.AdjustToContents)
+        
+        # Add timer to refresh scrollbar after window operations
+        self.scrollbar_refresh_timer = QTimer()
+        self.scrollbar_refresh_timer.setSingleShot(True)
+        self.scrollbar_refresh_timer.timeout.connect(self.refresh_table_scrollbar)
+        
+        # Set row height
         self.multi_files_table.verticalHeader().setDefaultSectionSize(25)
-        # Ensure the table can scroll properly
         self.multi_files_table.setAlternatingRowColors(True)
         self.multi_files_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        # Force the scrollbar to be visible by setting a size policy
-        self.multi_files_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.multi_files_table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)  # Enable multi-selection
         self.multi_files_table.cellDoubleClicked.connect(self.edit_file_distance)
         # Also connect cell changed for immediate updates
         self.multi_files_table.cellChanged.connect(self.on_cell_changed)
@@ -1692,7 +1647,7 @@ class AnalysisPanel(QWidget):
         self.regions_data = {}  # Store data for each region
         self.multi_loaded_files = []  # Store loaded file paths
         self.file_data = {}  # Store file-specific data (distance, region)
-        self.region_colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#34495e']
+        self.region_colors = ['#2E86AB', '#A23B72', '#F18F01', '#C73E1D', '#6A994E', '#7209B7', '#F77F00', '#4A4A4A']
         self.current_color_index = 0
     
     def create_multi_region_plot_section(self):
@@ -1963,9 +1918,8 @@ class AnalysisPanel(QWidget):
             self.plot_fit_results()
             
         except Exception as e:
-            # Silently handle errors
-            pass
             QMessageBox.warning(self, "Fit Error", f"Error fitting data: {str(e)}")
+            print(f"IV Fit Error: {e}")  # Debug output
     
     def remove_middle_data(self, voltages, currents, peak_volt, valley_volt):
         """Remove data between peak and valley points."""
@@ -2135,10 +2089,59 @@ class AnalysisPanel(QWidget):
         Args:
             data: Measurement data dictionary from IV sweep
         """
-        # This method can be implemented in the future to automatically 
-        # add measurement data to the TLM analysis
-        # Currently not used for direct data processing
-        pass
+        try:
+            # Handle bidirectional data (forward and reverse sweeps)
+            if 'voltage_forward' in data and 'current_forward' in data:
+                # Combine forward and reverse data
+                voltage_forward = np.array(data['voltage_forward'])
+                current_forward = np.array(data['current_forward'])
+                voltage_reverse = np.array(data['voltage_reverse']) if 'voltage_reverse' in data else np.array([])
+                current_reverse = np.array(data['current_reverse']) if 'current_reverse' in data else np.array([])
+                
+                # Combine all data
+                if len(voltage_reverse) > 0:
+                    self.iv_voltage = np.concatenate([voltage_forward, voltage_reverse])
+                    self.iv_current = np.concatenate([current_forward, current_reverse]) * 1e-3  # Convert to mA
+                else:
+                    self.iv_voltage = voltage_forward
+                    self.iv_current = current_forward * 1e-3  # Convert to mA
+                    
+                self.iv_file_path = "Measurement Data (Bidirectional)"
+                
+            # Handle single direction data
+            elif 'voltage' in data and 'current' in data:
+                self.iv_voltage = np.array(data['voltage'])
+                self.iv_current = np.array(data['current']) * 1e-3  # Convert to mA
+                self.iv_file_path = "Measurement Data"
+                
+            else:
+                print("No voltage/current data found in measurement data")
+                return
+            
+            # Enable IV fit button
+            self.iv_fit_button.setEnabled(True)
+            self.iv_fit_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {AppTheme.COLORS['primary']};
+                    color: white;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: #1c6ea4;
+                }}
+                QPushButton:pressed {{
+                    background-color: #155a8a;
+                }}
+            """)
+            
+            print(f"IV data loaded for analysis: {len(self.iv_voltage)} points")
+            
+        except Exception as e:
+            print(f"Error processing measurement data: {e}")
+            QMessageBox.warning(self, "Data Processing Error", f"Error processing measurement data: {str(e)}")
     
     # Multi-Region TLM Methods
     def add_region(self):
@@ -2166,6 +2169,9 @@ class AnalysisPanel(QWidget):
             
             # Update region list
             self.update_region_list()
+            
+            # Update multi-assignment combo
+            self.multi_region_combo.addItem(region_name)
             
             # Update files table to include new region in dropdowns
             self.update_multi_files_table()
@@ -2210,9 +2216,11 @@ class AnalysisPanel(QWidget):
     
     def load_tlm_files_continuous(self):
         """Load TLM files continuously (adds to existing collection)."""
+        options = QFileDialog.Option.DontUseNativeDialog
         file_paths, _ = QFileDialog.getOpenFileNames(
             self, "Select TLM Files", "",
-            "Text Files (*.txt);;All Files (*)"
+            "Text Files (*.txt);;All Files (*)",
+            options=options
         )
         
         if file_paths:
@@ -2235,6 +2243,319 @@ class AnalysisPanel(QWidget):
                 self.add_new_files_to_table()
             self.analyze_multi_region_button.setEnabled(True)
     
+    def load_tlm_files_from_folders(self):
+        """Load TLM files from selected folders (recursively searches subfolders)."""
+        try:
+            # Use a custom approach for multiple folder selection
+            # First, let user select a parent directory
+            parent_dir = QFileDialog.getExistingDirectory(
+                self, 
+                "Select Parent Directory (will scan all subdirectories)", 
+                "",
+                QFileDialog.Option.ShowDirsOnly
+            )
+            
+            if not parent_dir:
+                return
+            
+            # Ask how they want to select folders
+            msg_box = QMessageBox()
+            msg_box.setWindowTitle("Folder Selection Mode")
+            msg_box.setText("How would you like to select folders?")
+            msg_box.setInformativeText(
+                "Choose your preferred method:\n\n" +
+                "• Automatic: Scan ALL subdirectories\n" +
+                "• Manual: Select specific folders one by one\n" +
+                "• Multi-Select: Try to select multiple folders at once"
+            )
+            
+            auto_btn = msg_box.addButton("Automatic Scan", QMessageBox.ButtonRole.AcceptRole)
+            manual_btn = msg_box.addButton("Manual Selection", QMessageBox.ButtonRole.AcceptRole)
+            multi_btn = msg_box.addButton("Multi-Select", QMessageBox.ButtonRole.AcceptRole)
+            cancel_btn = msg_box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+            
+            msg_box.exec()
+            clicked_button = msg_box.clickedButton()
+            
+            if clicked_button == cancel_btn:
+                return
+            
+            if clicked_button == auto_btn:
+                # Scan all subdirectories automatically
+                folder_paths = []
+                for root, dirs, files in os.walk(parent_dir):
+                    # Check if this directory contains TLM files
+                    has_tlm_files = any(
+                        os.path.splitext(f)[1].lower() in ['.txt', '.xlsx', '.xls', '.csv']
+                        for f in files
+                    )
+                    if has_tlm_files:
+                        folder_paths.append(root)
+                
+                if not folder_paths:
+                    QMessageBox.information(
+                        self, "No TLM Files Found", 
+                        f"No TLM files found in any subdirectories of:\n{parent_dir}"
+                    )
+                    return
+            elif clicked_button == manual_btn:
+                # Manual selection of specific folders
+                folder_paths = []
+                while True:
+                    folder_path = QFileDialog.getExistingDirectory(
+                        self, 
+                        "Select TLM Folder (Cancel when done)", 
+                        parent_dir,
+                        QFileDialog.Option.ShowDirsOnly
+                    )
+                    
+                    if not folder_path:
+                        break
+                    
+                    folder_paths.append(folder_path)
+                    
+                    # Ask if they want to add more
+                    more_reply = QMessageBox.question(
+                        self, 
+                        "Add More Folders?",
+                        f"Added: {os.path.basename(folder_path)}\n\nAdd another folder?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No
+                    )
+                    
+                    if more_reply == QMessageBox.StandardButton.No:
+                        break
+            elif clicked_button == multi_btn:
+                # Use a custom approach: show available folders and let user select multiple
+                folder_paths = self.show_folder_selection_dialog(parent_dir)
+                if not folder_paths:
+                    return
+            
+            if not folder_paths:
+                return
+            
+            # Find all relevant files in the selected folders
+            found_files = []
+            supported_extensions = ['.txt', '.xlsx', '.xls', '.csv']
+            
+            # Walk through all subdirectories of all selected folders
+            for folder_path in folder_paths:
+                try:
+                    for root, dirs, files in os.walk(folder_path):
+                        for file in files:
+                            try:
+                                file_path = os.path.join(root, file)
+                                file_ext = os.path.splitext(file_path)[1].lower()
+                                if file_ext in supported_extensions:
+                                    found_files.append(file_path)
+                            except Exception as e:
+                                print(f"Error processing file {file}: {e}")
+                                continue
+                except Exception as e:
+                    print(f"Error walking folder {folder_path}: {e}")
+                    continue
+            
+            if found_files:
+                # Group files by distance and select only upward + most recent
+                try:
+                    selected_files = self.process_and_select_files(found_files)
+                except Exception as e:
+                    print(f"Error in process_and_select_files: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    return
+                
+                # Add selected files to existing collection
+                added_count = 0
+                skipped_count = 0
+                
+                for file_path in selected_files:
+                    if file_path not in self.multi_loaded_files:
+                        try:
+                            self.multi_loaded_files.append(file_path)
+                            # Initialize file data with auto-detected distance from filename
+                            distance = self.extract_distance_from_filename(os.path.basename(file_path))
+                            self.file_data[file_path] = {
+                                'distance': distance,
+                                'region': 'Not assigned'
+                            }
+                            added_count += 1
+                        except Exception as e:
+                            print(f"Error adding file {file_path}: {e}")
+                            import traceback
+                            traceback.print_exc()
+                            skipped_count += 1
+                            continue
+                    else:
+                        skipped_count += 1
+                
+                # Show success message
+                message = f"Successfully loaded {added_count} new files from {len(folder_paths)} folder(s)."
+                message += f"\n\nProcessing summary:"
+                message += f"\n• Folders processed: {len(folder_paths)}"
+                message += f"\n• Files found: {len(found_files)}"
+                message += f"\n• Files selected: {len(selected_files)} (most recent for each distance)"
+                message += f"\n• Distance calculation: first digit of identifier × 5 µm"
+                message += f"\n• Files added: {added_count}"
+                if skipped_count > 0:
+                    message += f"\n• Files skipped: {skipped_count} (duplicates or errors)"
+                message += f"\n\nTotal files in collection: {len(self.multi_loaded_files)}"
+                
+                QMessageBox.information(self, "Files Loaded", message)
+                
+                self.update_multi_files_display()
+                # Update table
+                if self.multi_loaded_files and self.multi_files_table.rowCount() == 0:
+                    self.update_multi_files_table()
+                elif self.multi_loaded_files:
+                    self.add_new_files_to_table()
+                self.analyze_multi_region_button.setEnabled(True)
+            else:
+                QMessageBox.warning(
+                    self, "No Files Found", 
+                    f"No supported files (.txt, .xlsx, .xls, .csv) found in the selected folder(s)."
+                )
+                
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Error Loading Folders",
+                f"An error occurred while loading folders:\n{str(e)}\n\nPlease try again or load files individually."
+            )
+    
+    def process_and_select_files(self, file_paths):
+        """Process files and select the most recent file for each distance."""
+        from collections import defaultdict
+        
+        # Group files by distance
+        files_by_distance = defaultdict(list)
+        
+        for file_path in file_paths:
+            try:
+                filename = os.path.basename(file_path)
+                distance = self.extract_distance_from_filename(filename)
+                sweep_direction = self.detect_sweep_direction(filename)
+                
+                # Get file modification time safely
+                try:
+                    mod_time = os.path.getmtime(file_path)
+                except (OSError, IOError):
+                    mod_time = 0  # Default to 0 if can't get mod time
+                
+                files_by_distance[distance].append({
+                    'path': file_path,
+                    'filename': filename,
+                    'distance': distance,
+                    'sweep_direction': sweep_direction,
+                    'mod_time': mod_time
+                })
+            except Exception as e:
+                print(f"Error processing file {file_path}: {e}")
+                continue
+        
+        # Select files for each distance - always use most recent
+        selected_files = []
+        
+        for distance, file_group in files_by_distance.items():
+            # Always select the most recent file regardless of sweep direction
+            most_recent = max(file_group, key=lambda x: x['mod_time'])
+            selected_files.append(most_recent['path'])
+        
+        return selected_files
+    
+    def extract_distance_from_filename(self, filename):
+        """Try to extract TLM distance from filename using common patterns."""
+        import re
+        
+        print(f"DEBUG: Extracting distance from filename: {filename}")
+        
+        # Common patterns: "10um", "10_um", "10 um", "D10", "d10", etc.
+        patterns = [
+            r'(\d+\.?\d*)\s*[uμ]m',  # 10um, 10.5um, 10 um
+            r'[dD](\d+\.?\d*)',       # D10, d10.5
+            r'(\d+\.?\d*)\s*micron',  # 10micron
+            r'_(\d+\.?\d*)_',         # _10_, _10.5_
+            r'-(\d+\.?\d*)-',         # -34- (for files like "I-V Curve - 34 - ...")
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, filename, re.IGNORECASE)
+            if match:
+                try:
+                    distance = float(match.group(1))
+                    print(f"DEBUG: Found distance {distance} using pattern: {pattern}")
+                    return distance
+                except Exception as e:
+                    print(f"DEBUG: Error converting to float: {e}")
+                    pass
+        
+        print("DEBUG: No pattern matched, using default distance 10.0")
+        # Default distance if no pattern found
+        return 10.0
+    
+    def detect_sweep_direction(self, filename):
+        """Detect if filename indicates upward or downward sweep."""
+        filename_lower = filename.lower()
+        
+        if 'upward' in filename_lower or 'up' in filename_lower:
+            return 'upward'
+        elif 'downward' in filename_lower or 'down' in filename_lower:
+            return 'downward'
+        else:
+            return 'unknown'
+    
+    def select_best_file_from_group(self, file_paths, selection_mode='most_recent'):
+        """Select one file from a group based on selection criteria."""
+        
+        if len(file_paths) == 1:
+            return file_paths[0]
+        
+        if selection_mode == 'most_recent':
+            # Get file modification times
+            files_with_time = [(f, os.path.getmtime(f)) for f in file_paths]
+            # Sort by modification time (newest first)
+            files_with_time.sort(key=lambda x: x[1], reverse=True)
+            return files_with_time[0][0]  # Return most recent file
+        
+        elif selection_mode == 'largest_file':
+            # Use largest file (more data points usually)
+            files_with_size = [(f, os.path.getsize(f)) for f in file_paths]
+            files_with_size.sort(key=lambda x: x[1], reverse=True)
+            return files_with_size[0][0]
+        
+        elif selection_mode == 'best_r_squared':
+            # Use file with best R² value (requires analyzing all)
+            best_file = file_paths[0]
+            best_r2 = -1
+            
+            for file_path in file_paths:
+                try:
+                    data = self.load_data_file(file_path)
+                    voltage = data[:, 0]
+                    current = data[:, 1] * 1e-3
+                    
+                    min_voltage = self.multi_min_voltage_input.value()
+                    valid_indices = voltage >= min_voltage
+                    
+                    if np.sum(valid_indices) < 2:
+                        continue
+                    
+                    filtered_voltage = voltage[valid_indices]
+                    filtered_current = current[valid_indices]
+                    
+                    slope, intercept, r_value, _, _ = stats.linregress(filtered_voltage, filtered_current)
+                    r_squared = r_value * r_value
+                    
+                    if r_squared > best_r2:
+                        best_r2 = r_squared
+                        best_file = file_path
+                except:
+                    continue
+            
+            return best_file
+        
+        else:
+            return file_paths[0]  # Default: first file
+    
     def update_multi_files_display(self):
         """Update the files label display."""
         if not self.multi_loaded_files:
@@ -2243,36 +2564,85 @@ class AnalysisPanel(QWidget):
             file_count = len(self.multi_loaded_files)
             self.multi_files_label.setText(f"{file_count} file{'s' if file_count != 1 else ''} loaded")
     
+    def refresh_table_scrollbar(self):
+        """Refresh table scrollbar after window operations."""
+        # Force table to recalculate its scroll area
+        self.multi_files_table.resizeRowsToContents()
+        self.multi_files_table.updateGeometry()
+        # Ensure scrollbar is properly updated
+        self.multi_files_table.verticalScrollBar().update()
+    
+    def schedule_scrollbar_refresh(self):
+        """Schedule a scrollbar refresh after a short delay."""
+        self.scrollbar_refresh_timer.start(100)  # 100ms delay
+    
+    def update_multi_region_combo(self):
+        """Update the multi-assignment region combo with current regions."""
+        current_text = self.multi_region_combo.currentText()
+        self.multi_region_combo.clear()
+        self.multi_region_combo.addItem("Not assigned")
+        
+        # Add all existing regions
+        for region_name in self.regions_data.keys():
+            self.multi_region_combo.addItem(region_name)
+        
+        # Try to restore the previous selection if it still exists
+        if current_text in [self.multi_region_combo.itemText(i) for i in range(self.multi_region_combo.count())]:
+            self.multi_region_combo.setCurrentText(current_text)
+        else:
+            self.multi_region_combo.setCurrentText("Not assigned")
+    
     def update_multi_files_table(self):
         """Update the files table with current loaded files."""
+        # Ensure table has correct number of rows
         self.multi_files_table.setRowCount(len(self.multi_loaded_files))
+        
+        # Force table to refresh and show all rows
+        self.multi_files_table.resizeRowsToContents()
+        
+        # Refresh scrollbar after update
+        self.refresh_table_scrollbar()
+        
+        # Update multi-assignment combo with current regions
+        self.update_multi_region_combo()
         
         for row, file_path in enumerate(self.multi_loaded_files):
             filename = os.path.basename(file_path)
             
             # File name
-            self.multi_files_table.setItem(row, 0, QTableWidgetItem(filename))
+            file_item = QTableWidgetItem(filename)
+            file_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.multi_files_table.setItem(row, 0, file_item)
             
             # Distance (simple text like regular TLM)
             distance = self.file_data.get(file_path, {}).get('distance', 10.0)
-            self.multi_files_table.setItem(row, 1, QTableWidgetItem(f"{distance:.1f} μm"))
+            distance_item = QTableWidgetItem(f"{distance:.1f} μm")
+            distance_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.multi_files_table.setItem(row, 1, distance_item)
             
-            # Region selection
-            region_combo = QComboBox()
-            region_combo.addItem("Not assigned")
-            region_combo.addItems(list(self.regions_data.keys()))
-            region_combo.setCurrentText(self.file_data.get(file_path, {}).get('region', 'Not assigned'))
-            region_combo.setStyleSheet(f"""
-                QComboBox {{
+            # Region selection - using QPushButton instead of QComboBox for better alignment
+            region_button = QPushButton(self.file_data.get(file_path, {}).get('region', 'Not assigned'))
+            region_button.setMinimumHeight(23)
+            region_button.setMaximumHeight(23)
+            region_button.setStyleSheet(f"""
+                QPushButton {{
                     background-color: {self.colors['input']};
                     color: {self.colors['text']};
                     border: 1px solid {self.colors['border']};
-                    border-radius: 4px;
-                    padding: 4px;
+                    border-radius: 3px;
+                    padding: 0px 4px 2px 4px;
+                    text-align: center;
+                    font-size: 12px;
+                }}
+                QPushButton:hover {{
+                    background-color: {self.colors.get('button_hover', '#4A4A4A')};
+                }}
+                QPushButton:pressed {{
+                    background-color: {self.colors.get('button_pressed', '#3A3A3A')};
                 }}
             """)
-            region_combo.currentTextChanged.connect(lambda text, fp=file_path: self.update_file_region(fp, text))
-            self.multi_files_table.setCellWidget(row, 2, region_combo)
+            region_button.clicked.connect(lambda checked, fp=file_path, btn=region_button: self.show_region_menu(fp, btn))
+            self.multi_files_table.setCellWidget(row, 2, region_button)
     
     def add_new_files_to_table(self):
         """Add only new files to the table without resetting existing ones."""
@@ -2282,6 +2652,13 @@ class AnalysisPanel(QWidget):
         if new_files_count > 0:
             # Add new rows for new files
             self.multi_files_table.setRowCount(len(self.multi_loaded_files))
+            # Force table to refresh
+            self.multi_files_table.resizeRowsToContents()
+            # Refresh scrollbar after update
+            self.refresh_table_scrollbar()
+            
+            # Update multi-assignment combo with current regions
+            self.update_multi_region_combo()
             
             # Only populate the new rows
             for row in range(current_row_count, len(self.multi_loaded_files)):
@@ -2289,28 +2666,39 @@ class AnalysisPanel(QWidget):
                 filename = os.path.basename(file_path)
                 
                 # File name
-                self.multi_files_table.setItem(row, 0, QTableWidgetItem(filename))
+                file_item = QTableWidgetItem(filename)
+                file_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.multi_files_table.setItem(row, 0, file_item)
                 
                 # Distance (simple text like regular TLM)
                 distance = self.file_data.get(file_path, {}).get('distance', 10.0)
-                self.multi_files_table.setItem(row, 1, QTableWidgetItem(f"{distance:.1f} μm"))
+                distance_item = QTableWidgetItem(f"{distance:.1f} μm")
+                distance_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.multi_files_table.setItem(row, 1, distance_item)
                 
-                # Region selection
-                region_combo = QComboBox()
-                region_combo.addItem("Not assigned")
-                region_combo.addItems(list(self.regions_data.keys()))
-                region_combo.setCurrentText(self.file_data.get(file_path, {}).get('region', 'Not assigned'))
-                region_combo.setStyleSheet(f"""
-                    QComboBox {{
+                # Region selection - using QPushButton instead of QComboBox for better alignment
+                region_button = QPushButton(self.file_data.get(file_path, {}).get('region', 'Not assigned'))
+                region_button.setMinimumHeight(23)
+                region_button.setMaximumHeight(23)
+                region_button.setStyleSheet(f"""
+                    QPushButton {{
                         background-color: {self.colors['input']};
                         color: {self.colors['text']};
                         border: 1px solid {self.colors['border']};
-                        border-radius: 4px;
-                        padding: 4px;
+                        border-radius: 3px;
+                        padding: 0px 4px 2px 4px;
+                        text-align: center;
+                        font-size: 12px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {self.colors.get('button_hover', '#4A4A4A')};
+                    }}
+                    QPushButton:pressed {{
+                        background-color: {self.colors.get('button_pressed', '#3A3A3A')};
                     }}
                 """)
-                region_combo.currentTextChanged.connect(lambda text, fp=file_path: self.update_file_region(fp, text))
-                self.multi_files_table.setCellWidget(row, 2, region_combo)
+                region_button.clicked.connect(lambda checked, fp=file_path, btn=region_button: self.show_region_menu(fp, btn))
+                self.multi_files_table.setCellWidget(row, 2, region_button)
     
     def update_file_distance(self, file_path, distance):
         """Update distance for a specific file."""
@@ -2318,10 +2706,90 @@ class AnalysisPanel(QWidget):
             self.file_data[file_path]['distance'] = distance
             # Distance updated successfully
     
-    def update_file_region(self, file_path, region):
+    def show_region_menu(self, file_path, button):
+        """Show a context menu for region selection."""
+        from PyQt6.QtWidgets import QMenu
+        from functools import partial
+
+        # Keep a persistent reference to avoid GC-related crashes on some platforms
+        if not hasattr(self, "_region_menu") or self._region_menu is None:
+            self._region_menu = QMenu(self)
+        else:
+            self._region_menu.clear()
+
+        # Safety: guard against missing/invalid button
+        if button is None:
+            return
+
+        # Build actions
+        self._region_menu.addAction(
+            "Not assigned",
+            partial(self.update_file_region, file_path, "Not assigned", button),
+        )
+
+        for region_name in list(self.regions_data.keys()):
+            self._region_menu.addAction(
+                region_name,
+                partial(self.update_file_region, file_path, region_name, button),
+            )
+
+        # Show menu at button position (non-blocking to avoid platform-specific aborts)
+        button_rect = button.rect()
+        self._region_menu.popup(button.mapToGlobal(button_rect.bottomLeft()))
+    
+    def show_load_files_menu(self):
+        """Show a context menu for load files options."""
+        from PyQt6.QtWidgets import QMenu
+        
+        menu = QMenu(self)
+        menu.addAction("📁 Load Individual Files", self.load_tlm_files_continuous)
+        menu.addAction("📂 Load from Folders", self.load_tlm_files_from_folders)
+        
+        # Show menu at button position
+        button_rect = self.load_files_button.rect()
+        menu.exec(self.load_files_button.mapToGlobal(button_rect.bottomLeft()))
+    
+    def assign_selected_files(self):
+        """Assign selected files to the selected region."""
+        selected_region = self.multi_region_combo.currentText()
+        selected_items = self.multi_files_table.selectedItems()
+        
+        if not selected_items:
+            QMessageBox.information(self, "No Selection", "Please select files from the table first.")
+            return
+        
+        # Get unique rows from selected items
+        selected_rows = set()
+        for item in selected_items:
+            selected_rows.add(item.row())
+        
+        # Update each selected file
+        updated_count = 0
+        for row in selected_rows:
+            if row < len(self.multi_loaded_files):
+                file_path = self.multi_loaded_files[row]
+                if file_path in self.file_data:
+                    self.file_data[file_path]['region'] = selected_region
+                    # Update the button text
+                    button = self.multi_files_table.cellWidget(row, 2)
+                    if button:
+                        button.setText(selected_region)
+                    updated_count += 1
+        
+        if updated_count > 0:
+            # Clear selection after successful assignment
+            self.multi_files_table.clearSelection()
+            QMessageBox.information(self, "Assignment Complete", 
+                                  f"Assigned {updated_count} file(s) to '{selected_region}'.")
+        else:
+            QMessageBox.warning(self, "No Updates", "No files were updated.")
+    
+    def update_file_region(self, file_path, region, button=None):
         """Update region assignment for a specific file."""
         if file_path in self.file_data:
             self.file_data[file_path]['region'] = region
+            if button:
+                button.setText(region)
     
     def edit_file_distance(self, row, column):
         """Edit file distance when double-clicking on distance column."""
@@ -2418,9 +2886,15 @@ class AnalysisPanel(QWidget):
                 distances, resistances = self.process_region_files_new(files, min_voltage)
                 
                 if len(distances) > 1:
-                    # Perform linear regression
+                    # Perform linear regression: R = a*L + b
+                    # where a = R_s/D and b = 2*R_c
                     slope, intercept, r_value, p_value, std_err = stats.linregress(distances, resistances)
                     r_squared = r_value * r_value
+                    
+                    # Calculate TLM parameters
+                    D = 200  # Dimension (assumed)
+                    R_c = intercept / 2  # Contact resistance: b = 2*R_c
+                    R_s = slope * D      # Sheet resistance: a = R_s/D
                     
                     # Store results
                     self.regions_data[region_name]['distances'] = distances
@@ -2428,6 +2902,8 @@ class AnalysisPanel(QWidget):
                     self.regions_data[region_name]['slope'] = slope
                     self.regions_data[region_name]['intercept'] = intercept
                     self.regions_data[region_name]['r_squared'] = r_squared
+                    self.regions_data[region_name]['R_c'] = R_c
+                    self.regions_data[region_name]['R_s'] = R_s
                     self.regions_data[region_name]['analyzed'] = True
                 else:
                     self.regions_data[region_name]['analyzed'] = False
@@ -2536,46 +3012,78 @@ class AnalysisPanel(QWidget):
         return np.array(distances), np.array(resistances)
     
     def process_region_files_new(self, files, min_voltage):
-        """Process TLM files for a region using the new file structure."""
+        """Process TLM files for a region using the new file structure with duplicate handling."""
         distances = []
         resistances = []
         
+        # Group files by distance
+        distance_groups = {}
         for file_info in files:
-            file_path = file_info['file_path']
-            distance = file_info['distance']
+            dist = file_info['distance']
+            if dist not in distance_groups:
+                distance_groups[dist] = []
+            distance_groups[dist].append(file_info)
+        
+        # Always use most recent file
+        selection_mode = 'most_recent'
+        
+        # Process each distance group
+        for distance, group_files in sorted(distance_groups.items()):
+            # Filter for upward sweeps only (prefer upward over downward/unknown)
+            upward_files = [f for f in group_files 
+                           if self.detect_sweep_direction(os.path.basename(f['file_path'])) == 'upward']
             
-            try:
-                # Load and process the file
-                voltage, current = self.load_iv_data_from_file(file_path)
+            if not upward_files:
+                # If no upward files, use all files
+                upward_files = group_files
+            
+            # Select best file from group if multiple
+            if len(upward_files) > 1:
+                file_paths = [f['file_path'] for f in upward_files]
+                selected_file_path = self.select_best_file_from_group(file_paths, selection_mode)
+                # Get the file_info for the selected file
+                selected_file_info = next(f for f in upward_files if f['file_path'] == selected_file_path)
+                files_to_process = [selected_file_info]
+            else:
+                files_to_process = upward_files
+            
+            # Process the selected file(s)
+            for file_info in files_to_process:
+                file_path = file_info['file_path']
                 
-                if len(voltage) == 0 or len(current) == 0:
+                try:
+                    # Load and process the file
+                    voltage, current = self.load_iv_data_from_file(file_path)
+                    
+                    if len(voltage) == 0 or len(current) == 0:
+                        continue
+                    
+                    # Filter data based on minimum voltage
+                    valid_indices = voltage >= min_voltage
+                    if np.sum(valid_indices) < 2:
+                        continue
+                    
+                    filtered_voltage = voltage[valid_indices]
+                    filtered_current = current[valid_indices]
+                    
+                    # Convert current from mA to A
+                    filtered_current_amps = filtered_current * 1e-3
+                    
+                    # Perform linear regression
+                    slope, intercept, r_value, p_value, std_err = stats.linregress(filtered_voltage, filtered_current_amps)
+                    
+                    if abs(slope) < 1e-10 or np.isnan(slope):
+                        continue
+                    
+                    resistance = 1.0 / slope  # R = 1/slope (in ohms)
+                    
+                    distances.append(distance)
+                    resistances.append(resistance)
+                    
+                except Exception as e:
+                    print(f"Error processing file {file_path}: {e}")
                     continue
-                
-                # Filter data based on minimum voltage
-                valid_indices = voltage >= min_voltage
-                if np.sum(valid_indices) < 2:
-                    continue
-                
-                filtered_voltage = voltage[valid_indices]
-                filtered_current = current[valid_indices]
-                
-                # Convert current from mA to A
-                filtered_current_amps = filtered_current * 1e-3
-                
-                # Perform linear regression
-                slope, intercept, r_value, p_value, std_err = stats.linregress(filtered_voltage, filtered_current_amps)
-                
-                if abs(slope) < 1e-10 or np.isnan(slope):
-                    continue
-                
-                resistance = 1.0 / slope  # R = 1/slope (in ohms)
-                
-                distances.append(distance)
-                resistances.append(resistance)
-                
-            except Exception as e:
-                print(f"Error processing file {file_path}: {e}")
-                continue
+        
         return np.array(distances), np.array(resistances)
     
     def extract_distance_from_filename(self, file_path):
@@ -2589,15 +3097,121 @@ class AnalysisPanel(QWidget):
             r'(\d+\.?\d*)_um',
             r'(\d+\.?\d*)_μm',
             r'dist[_-]?(\d+\.?\d*)',
-            r'distance[_-]?(\d+\.?\d*)'
+            r'distance[_-]?(\d+\.?\d*)',
+            r'Curve - (\d+\.?\d*) -',  # I-V Curve - 34 - (more specific)
+            r'-(\d+\.?\d*)-',         # -34- (for files like "I-V Curve - 34 - ...")
+            r'_(\d+\.?\d*)_',         # _10_, _10.5_
         ]
         
+        # Special pattern for identifier-based distance calculation
+        # Look for patterns like "12_upward_sweep" where 12 is the identifier
+        # Make sure we don't match dates by being more specific
+        identifier_patterns = [
+            r'_(\d+)_upward_sweep',    # _12_upward_sweep
+            r'_(\d+)_downward_sweep',  # _12_downward_sweep
+            r'_(\d+)_sweep',           # _12_sweep
+            r'Curve - (\d+) - \[',     # I-V Curve - 12 - [ (stops at the bracket)
+        ]
+        
+        # First, try identifier-based distance calculation
+        for pattern in identifier_patterns:
+            match = re.search(pattern, filename, re.IGNORECASE)
+            if match:
+                identifier = int(match.group(1))
+                # Use only the first digit of the identifier
+                first_digit = int(str(identifier)[0])
+                distance = first_digit * 5  # Distance = first_digit * 5
+                return distance
+        
+        # If no identifier pattern found, try direct distance patterns
         for pattern in patterns:
             match = re.search(pattern, filename, re.IGNORECASE)
             if match:
-                return float(match.group(1))
+                distance = float(match.group(1))
+                return distance
         
-        return None
+        return 10.0  # Default distance instead of None
+    
+    def show_folder_selection_dialog(self, parent_dir):
+        """Show a custom dialog to select multiple folders."""
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton, QLabel, QListWidgetItem
+        from PyQt6.QtCore import Qt
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Folders Containing TLM Files")
+        dialog.setModal(True)
+        dialog.resize(500, 400)
+        
+        layout = QVBoxLayout()
+        
+        # Instructions
+        instructions = QLabel("Select multiple folders by clicking them (Ctrl+Click for multiple selection):")
+        instructions.setWordWrap(True)
+        layout.addWidget(instructions)
+        
+        # List widget to show available folders
+        folder_list = QListWidget()
+        folder_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        
+        # Find all folders that contain TLM files
+        available_folders = []
+        for root, dirs, files in os.walk(parent_dir):
+            # Check if this directory contains TLM files
+            has_tlm_files = any(
+                os.path.splitext(f)[1].lower() in ['.txt', '.xlsx', '.xls', '.csv']
+                for f in files
+            )
+            if has_tlm_files:
+                available_folders.append(root)
+        
+        # Add folders to the list
+        for folder_path in available_folders:
+            # Get relative path for display
+            rel_path = os.path.relpath(folder_path, parent_dir)
+            item = QListWidgetItem(rel_path)
+            item.setData(Qt.ItemDataRole.UserRole, folder_path)
+            folder_list.addItem(item)
+        
+        if not available_folders:
+            no_folders = QLabel("No folders with TLM files found in the selected directory.")
+            no_folders.setStyleSheet("color: red; font-weight: bold;")
+            layout.addWidget(no_folders)
+        else:
+            layout.addWidget(folder_list)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        
+        select_all_btn = QPushButton("Select All")
+        select_all_btn.clicked.connect(lambda: folder_list.selectAll())
+        button_layout.addWidget(select_all_btn)
+        
+        clear_btn = QPushButton("Clear Selection")
+        clear_btn.clicked.connect(lambda: folder_list.clearSelection())
+        button_layout.addWidget(clear_btn)
+        
+        button_layout.addStretch()
+        
+        ok_btn = QPushButton("OK")
+        ok_btn.clicked.connect(dialog.accept)
+        button_layout.addWidget(ok_btn)
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(dialog.reject)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(button_layout)
+        dialog.setLayout(layout)
+        
+        # Show dialog
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            selected_folders = []
+            for item in folder_list.selectedItems():
+                folder_path = item.data(Qt.ItemDataRole.UserRole)
+                selected_folders.append(folder_path)
+            return selected_folders
+        else:
+            return []
     
     def load_iv_data_from_file(self, file_path):
         """Load I-V data from a file."""
@@ -2682,20 +3296,27 @@ class AnalysisPanel(QWidget):
                 x_line = np.linspace(min(distances), max(distances), 100)
                 y_line = (data['slope'] * x_line + data['intercept']) / resistance_factor
                 
-                # Calculate resistance from slope (R = 1/slope)
-                resistance_value = 1.0 / data['slope'] if data['slope'] != 0 else 0
-                resistance_display = resistance_value / resistance_factor
+                # Get TLM parameters
+                R_c = data.get('R_c', 0)
+                R_s = data.get('R_s', 0)
                 
-                # Format resistance for display
-                if resistance_display < 1:
-                    resistance_text = f"{resistance_display:.3f} {resistance_unit}"
-                elif resistance_display < 1000:
-                    resistance_text = f"{resistance_display:.2f} {resistance_unit}"
+                # Format R_c and R_s for display
+                if R_c < 1:
+                    R_c_text = f"{R_c:.3f} {resistance_unit}"
+                elif R_c < 1000:
+                    R_c_text = f"{R_c:.2f} {resistance_unit}"
                 else:
-                    resistance_text = f"{resistance_display:.1f} {resistance_unit}"
+                    R_c_text = f"{R_c:.1f} {resistance_unit}"
                 
-                # Create legend label with region name and resistance
-                legend_label = f"{region_name}: R = {resistance_text}"
+                if R_s < 1:
+                    R_s_text = f"{R_s:.3f} {resistance_unit}"
+                elif R_s < 1000:
+                    R_s_text = f"{R_s:.2f} {resistance_unit}"
+                else:
+                    R_s_text = f"{R_s:.1f} {resistance_unit}"
+                
+                # Create legend label with TLM parameters using subscripts
+                legend_label = f"{region_name}: R$_{{c}}$={R_c_text}, R$_{{s}}$={R_s_text}"
                 
                 self.multi_region_canvas.axes.plot(
                     x_line, y_line, 
@@ -2704,12 +3325,15 @@ class AnalysisPanel(QWidget):
                     label=legend_label, zorder=2
                 )
         
-        # Set labels and title
-        self.multi_region_canvas.axes.set_xlabel('TLM Distance (μm)')
-        self.multi_region_canvas.axes.set_ylabel(f'Resistance ({resistance_unit})')
-        # Use editable title
-        plot_title = self.multi_plot_title_input.text() if hasattr(self, 'multi_plot_title_input') else 'Multi-Region TLM Analysis'
-        self.multi_region_canvas.axes.set_title(plot_title)
+        # Set labels and title with larger fonts
+        self.multi_region_canvas.axes.set_xlabel('TLM Distance (μm)', fontsize=14, fontweight='bold')
+        self.multi_region_canvas.axes.set_ylabel(f'Resistance ({resistance_unit})', fontsize=14, fontweight='bold')
+        # Use editable title with larger font
+        plot_title = self.multi_plot_title_input.text() if hasattr(self, 'multi_plot_title_input') else 'TLM Analysis'
+        self.multi_region_canvas.axes.set_title(plot_title, fontsize=16, fontweight='bold')
+        
+        # Increase tick label font size
+        self.multi_region_canvas.axes.tick_params(axis='both', which='major', labelsize=12)
         
         # Apply plot style settings
         self.update_multi_plot_style()
@@ -2763,7 +3387,7 @@ class AnalysisPanel(QWidget):
         legend = self.multi_region_canvas.axes.get_legend()
         if legend:
             legend.remove()
-        legend = self.multi_region_canvas.axes.legend(loc='upper right', frameon=True, fontsize=11)
+        legend = self.multi_region_canvas.axes.legend(loc='upper right', frameon=True, fontsize=13)
         legend.get_frame().set_facecolor('#ffffff')
         legend.get_frame().set_alpha(0.9)
         legend.get_frame().set_edgecolor('#000000')
@@ -2795,6 +3419,10 @@ class AnalysisPanel(QWidget):
                 self.update_region_list()
                 self.update_multi_files_display()
                 self.update_multi_files_table()
+                
+                # Clear and reset the multi-assignment combo
+                self.multi_region_combo.clear()
+                self.multi_region_combo.addItem("Not assigned")
                 
                 # Disable buttons
                 self.analyze_multi_region_button.setEnabled(False)
